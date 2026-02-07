@@ -9,6 +9,7 @@ interface IStreamingTreasury {
 
 contract TreasuryFactory {
     address public immutable implementation;
+    mapping(address => address) public treasuryMapping;
 
     event TreasuryCreated(address indexed owner, address treasury);
 
@@ -17,8 +18,10 @@ contract TreasuryFactory {
     }
 
     function createTreasury() external returns (address treasury) {
+        require(treasuryMapping[msg.sender] == address(0), "treasury already exists");
         treasury = Clones.clone(implementation);
         IStreamingTreasury(treasury).initialize(msg.sender);
+        treasuryMapping[msg.sender] = address(treasury);
         emit TreasuryCreated(msg.sender, treasury);
     }
 
