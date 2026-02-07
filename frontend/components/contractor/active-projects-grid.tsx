@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { Pause, Play, Square, ExternalLink } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -107,9 +108,9 @@ export function ActiveProjectsGrid() {
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
         {mockProjects.map((project) => (
+          <Link key={project.id} href={`/contractor/projects/${project.id}`}>
           <Card
-            key={project.id}
-            className="bg-card border border-border shadow-sm hover:shadow-md transition-all duration-200 group"
+            className="bg-card border border-border shadow-sm hover:shadow-md transition-all duration-200 group cursor-pointer"
           >
             <CardHeader className="pb-3">
               <div className="flex items-start justify-between">
@@ -194,6 +195,7 @@ export function ActiveProjectsGrid() {
               </div>
             </CardContent>
           </Card>
+          </Link>
         ))}
       </div>
     </div>

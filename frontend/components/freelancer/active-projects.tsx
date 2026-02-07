@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { FileText, Github, Video, ExternalLink } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -85,9 +86,9 @@ export function FreelancerActiveProjects() {
       <CardContent>
         <div className="space-y-3">
           {mockProjects.map((project) => (
+            <Link key={project.id} href={`/freelancer/projects/${project.id}`}>
             <div
-              key={project.id}
-              className="p-4 rounded-lg border border-border bg-background hover:bg-muted/30 transition-colors"
+              className="mt-2 p-4 rounded-lg border border-border bg-background hover:bg-muted/30 transition-colors cursor-pointer"
             >
               <div className="flex items-start justify-between mb-3">
                 <div>
@@ -136,6 +137,7 @@ export function FreelancerActiveProjects() {
                 </div>
               </div>
             </div>
+            </Link>
           ))}
         </div>
       </CardContent>

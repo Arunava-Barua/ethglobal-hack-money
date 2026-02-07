@@ -69,11 +69,11 @@ export default function SettingsPage() {
         <CardContent className="space-y-4">
           <div className="space-y-2">
             <Label className="text-sm font-medium">Default Payment Token</Label>
-            <Input defaultValue="ETH" />
+            <Input defaultValue="USDC" />
           </div>
           <div className="space-y-2">
             <Label className="text-sm font-medium">Default Streaming Network</Label>
-            <Input defaultValue="Ethereum Mainnet" />
+            <Input defaultValue="ARC Testnet" />
           </div>
           <div className="flex items-center justify-between">
             <div>
