@@ -1,17 +1,16 @@
 'use client'
 
-import { useState } from 'react'
-import { Bell, Download, Moon, Sun, Wallet, ChevronDown, LogOut, Copy, Check } from 'lucide-react'
+import { Bell, Download, Moon, Sun } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { useTheme } from 'next-themes'
+import { ConnectWallet } from '@/components/connect-wallet'
 
 interface Notification {
   id: string
@@ -29,14 +28,7 @@ const mockNotifications: Notification[] = [
 
 export function TopBar({ role }: { role: 'contractor' | 'freelancer' }) {
   const { theme, setTheme } = useTheme()
-  const [walletConnected, setWalletConnected] = useState(false)
-  const [copied, setCopied] = useState(false)
   const unreadCount = mockNotifications.filter(n => n.unread).length
-
-  const handleCopyAddress = () => {
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
-  }
 
   return (
     <header className="h-16 border-b border-border bg-card/80 backdrop-blur-sm flex items-center justify-between px-6 sticky top-0 z-40">
@@ -99,36 +91,7 @@ export function TopBar({ role }: { role: 'contractor' | 'freelancer' }) {
         </DropdownMenu>
 
         {/* Wallet Connect */}
-        {walletConnected ? (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" className="gap-2 h-9 px-3">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-live-dot" />
-                <span className="text-sm font-mono">0x742d...e8aF</span>
-                <ChevronDown className="w-3 h-3" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={handleCopyAddress} className="gap-2 cursor-pointer">
-                {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                {copied ? 'Copied!' : 'Copy Address'}
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => setWalletConnected(false)} className="gap-2 text-destructive cursor-pointer">
-                <LogOut className="w-4 h-4" />
-                Disconnect
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        ) : (
-          <Button
-            onClick={() => setWalletConnected(true)}
-            className="gap-2 h-9 bg-primary hover:bg-primary/90 text-primary-foreground"
-          >
-            <Wallet className="w-4 h-4" />
-            <span className="text-sm">Connect Wallet</span>
-          </Button>
-        )}
+        <ConnectWallet />
       </div>
     </header>
   )

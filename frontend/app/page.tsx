@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { ArrowRight, Briefcase, Code2, Zap, Shield, TrendingUp } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
+import { ConnectWallet } from '@/components/connect-wallet'
 
 export default function LandingPage() {
   return (
@@ -24,9 +25,7 @@ export default function LandingPage() {
               <Button variant="ghost" className="text-muted-foreground hover:text-foreground">
                 About
               </Button>
-              <Button variant="outline" className="gap-2">
-                Connect Wallet
-              </Button>
+              <ConnectWallet variant="landing" />
             </div>
           </nav>
 
