@@ -31,8 +31,11 @@ interface WalletContextValue {
   isConnecting: boolean
   address: string | null
   walletId: string | null
+  userToken: string | null
+  encryptionKey: string | null
   connect: () => void
   disconnect: () => void
+  executeChallenge: (challengeId: string) => Promise<void>
   error: string | null
 }
 
@@ -298,6 +301,35 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     }
   }, [sdkReady, deviceId, deviceToken, deviceEncryptionKey])
 
+  const executeChallenge = useCallback(
+    async (challengeId: string) => {
+      const sdk = sdkRef.current
+      if (!sdk || !loginResult) {
+        throw new Error('SDK not ready or user not logged in')
+      }
+
+      sdk.setAuthentication({
+        userToken: loginResult.userToken,
+        encryptionKey: loginResult.encryptionKey,
+      })
+
+      return new Promise<void>((resolve, reject) => {
+        sdk.execute(challengeId, (executeError: unknown) => {
+          if (executeError) {
+            reject(
+              new Error(
+                (executeError as Error).message || 'Challenge execution failed',
+              ),
+            )
+          } else {
+            resolve()
+          }
+        })
+      })
+    },
+    [loginResult],
+  )
+
   const disconnect = useCallback(() => {
     setIsConnected(false)
     setAddress(null)
@@ -314,8 +346,11 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         isConnecting,
         address,
         walletId,
+        userToken: loginResult?.userToken ?? null,
+        encryptionKey: loginResult?.encryptionKey ?? null,
         connect,
         disconnect,
+        executeChallenge,
         error,
       }}
     >

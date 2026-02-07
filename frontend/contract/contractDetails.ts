@@ -1,7 +1,8 @@
-const ARC_RPC = "https://rpc.testnet.arc.network";
+export const ARC_RPC = "https://rpc.testnet.arc.network";
 
-const TREASURY_ADDRESS = "0x2FE70447492307108Bdc7Ff6BaB33Ff37Dacc479";
-const TREASURY_ABI = [
+// export const TREASURY_FACTORY_ADDRESS = "0x2FE70447492307108Bdc7Ff6BaB33Ff37Dacc479" as const;
+export const TREASURY_FACTORY_ADDRESS = "0x4c79A13451E7c338aF1798DD15d6e6d8888b9637" as const;
+export const TREASURY_FACTORY_ABI = [
   {
     type: "constructor",
     inputs: [
@@ -71,7 +72,7 @@ const TREASURY_ABI = [
   },
 ];
 
-const STREAMING_ABI = [
+export const STREAMING_TREASURY_ABI = [
   { type: "constructor", inputs: [], stateMutability: "nonpayable" },
   {
     type: "function",

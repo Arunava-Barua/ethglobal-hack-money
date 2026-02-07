@@ -110,6 +110,104 @@ export async function POST(request: Request) {
         return NextResponse.json(data.data, { status: 200 });
       }
 
+      case "contractExecution": {
+        const {
+          userToken,
+          walletId,
+          contractAddress,
+          abiFunctionSignature,
+          abiParameters,
+          feeLevel,
+          amount,
+        } = params;
+
+        if (!userToken || !walletId || !contractAddress || !abiFunctionSignature) {
+          return NextResponse.json(
+            { error: "Missing required fields for contractExecution" },
+            { status: 400 },
+          );
+        }
+
+        const execBody: Record<string, unknown> = {
+          idempotencyKey: crypto.randomUUID(),
+          walletId,
+          contractAddress,
+          abiFunctionSignature,
+          abiParameters: abiParameters ?? [],
+          feeLevel: feeLevel ?? "MEDIUM",
+        };
+
+        if (amount !== undefined) {
+          execBody.amount = String(amount);
+        }
+
+        const response = await fetch(
+          `${CIRCLE_BASE_URL}/v1/w3s/user/transactions/contractExecution`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${CIRCLE_API_KEY}`,
+              "X-User-Token": userToken,
+            },
+            body: JSON.stringify(execBody),
+          },
+        );
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          return NextResponse.json(data, { status: response.status });
+        }
+
+        return NextResponse.json(data.data, { status: 200 });
+      }
+
+      case "queryContract": {
+        const { address, blockchain, abiFunctionSignature, abiParameters, abiJson } = params;
+
+        if (!address || !abiFunctionSignature) {
+          return NextResponse.json(
+            { error: "Missing required fields for queryContract" },
+            { status: 400 },
+          );
+        }
+
+        const queryBody: Record<string, unknown> = {
+          address,
+          blockchain: blockchain ?? "ARC-TESTNET",
+          abiFunctionSignature,
+          abiParameters: abiParameters ?? [],
+        };
+
+        if (abiJson) {
+          queryBody.abiJson = abiJson;
+        }
+
+        console.log("[queryContract] request body:", JSON.stringify(queryBody, null, 2));
+
+        const response = await fetch(
+          `${CIRCLE_BASE_URL}/v1/w3s/contracts/query`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${CIRCLE_API_KEY}`,
+            },
+            body: JSON.stringify(queryBody),
+          },
+        );
+
+        const data = await response.json();
+        console.log("[queryContract] response:", response.status, JSON.stringify(data, null, 2));
+
+        if (!response.ok) {
+          return NextResponse.json(data, { status: response.status });
+        }
+
+        return NextResponse.json(data.data, { status: 200 });
+      }
+
       case "getTokenBalance": {
         const { userToken, walletId } = params;
         if (!userToken || !walletId) {
