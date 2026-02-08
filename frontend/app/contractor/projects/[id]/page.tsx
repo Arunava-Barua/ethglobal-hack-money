@@ -5,7 +5,7 @@ import Link from 'next/link'
 import {
   ArrowLeft, FileText, Github, Video, Pause, Play, Square,
   CheckCircle, Clock, AlertCircle, Bot, MessageSquare,
-  ShieldCheck, ShieldAlert, ShieldQuestion, TrendingUp,
+  ShieldCheck, ShieldAlert, ShieldQuestion, TrendingUp, Loader2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -18,15 +18,18 @@ import { StatusBadge } from '@/components/status-badge'
 import { StreamingCounter } from '@/components/streaming-counter'
 import { StreamedAmountChart } from '@/components/streamed-amount-chart'
 import { getProjectDetail } from '@/lib/mock-project'
-import { queryStream, type StreamState } from '@/lib/streaming'
+import { queryStream, sendStreamAction, type StreamState } from '@/lib/streaming'
+import { useWallet } from '@/components/wallet-provider'
 import { formatEther } from 'viem'
 
 const POLL_INTERVAL = 15_000
 
 export default function ContractorProjectDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
+  const { walletId, userToken, executeChallenge } = useWallet()
   const project = getProjectDetail(id)
   const [streamState, setStreamState] = useState<StreamState | null>(null)
+  const [actionInProgress, setActionInProgress] = useState<string | null>(null)
 
   // Poll on-chain stream state
   const pollStream = useCallback(async () => {
@@ -41,6 +44,42 @@ export default function ContractorProjectDetailPage({ params }: { params: Promis
     return () => clearInterval(interval)
   }, [pollStream])
 
+  async function handleStreamAction(action: 'pauseStream' | 'resumeStream' | 'stopStream') {
+    if (!walletId || !userToken || !project?.treasuryAddress || project.streamId == null) return
+
+    setActionInProgress(action)
+    try {
+      const challengeId = await sendStreamAction(
+        action,
+        project.streamId,
+        project.treasuryAddress,
+        walletId,
+        userToken,
+      )
+      await executeChallenge(challengeId)
+
+      // Poll for updated state
+      let retries = 0
+      const maxRetries = 10
+      while (retries < maxRetries) {
+        await new Promise((r) => setTimeout(r, 5000))
+        const state = await queryStream(project.treasuryAddress, project.streamId)
+        if (state) {
+          const expectedPaused = action !== 'resumeStream'
+          if (state.paused === expectedPaused) {
+            setStreamState(state)
+            break
+          }
+        }
+        retries++
+      }
+    } catch (err) {
+      console.error(`Stream ${action} failed:`, err)
+    } finally {
+      setActionInProgress(null)
+    }
+  }
+
   if (!project) {
     return (
       <div className="p-6 lg:p-8 max-w-[1400px] mx-auto">
@@ -53,6 +92,13 @@ export default function ContractorProjectDetailPage({ params }: { params: Promis
       </div>
     )
   }
+
+  // Derive live status from on-chain state
+  const liveStatus: 'active' | 'paused' | 'pending' | 'completed' = streamState
+    ? streamState.paused
+      ? BigInt(streamState.ratePerSecond) === 0n ? 'completed' : 'paused'
+      : 'active'
+    : project.status
 
   // Compute live values from on-chain state when available
   const liveRate = streamState
@@ -96,7 +142,7 @@ export default function ContractorProjectDetailPage({ params }: { params: Promis
             <h1 className="text-2xl font-bold text-foreground tracking-tight">{project.name}</h1>
             <div className="flex items-center gap-3 mt-1">
               <span className="text-sm text-muted-foreground font-mono">@{project.freelancerAlias}</span>
-              <StatusBadge status={project.status === 'active' ? 'live' : project.status} />
+              <StatusBadge status={liveStatus === 'active' ? 'live' : liveStatus} />
               <span className="text-xs px-2 py-0.5 rounded bg-muted text-muted-foreground font-medium capitalize">
                 {project.mode}
               </span>
@@ -104,23 +150,67 @@ export default function ContractorProjectDetailPage({ params }: { params: Promis
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {project.status === 'active' && (
+          {liveStatus === 'active' && (
             <>
-              <Button variant="outline" size="sm" className="gap-1.5">
-                <Pause className="w-3.5 h-3.5" /> Pause
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5"
+                disabled={!!actionInProgress}
+                onClick={() => handleStreamAction('pauseStream')}
+              >
+                {actionInProgress === 'pauseStream' ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Pause className="w-3.5 h-3.5" />
+                )}
+                Pause
               </Button>
-              <Button variant="outline" size="sm" className="gap-1.5 text-destructive hover:text-destructive">
-                <Square className="w-3.5 h-3.5" /> Stop
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5 text-destructive hover:text-destructive"
+                disabled={!!actionInProgress}
+                onClick={() => handleStreamAction('stopStream')}
+              >
+                {actionInProgress === 'stopStream' ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Square className="w-3.5 h-3.5" />
+                )}
+                Stop
               </Button>
             </>
           )}
-          {project.status === 'paused' && (
+          {liveStatus === 'paused' && (
             <>
-              <Button variant="outline" size="sm" className="gap-1.5">
-                <Play className="w-3.5 h-3.5" /> Resume
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5"
+                disabled={!!actionInProgress}
+                onClick={() => handleStreamAction('resumeStream')}
+              >
+                {actionInProgress === 'resumeStream' ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Play className="w-3.5 h-3.5" />
+                )}
+                Resume
               </Button>
-              <Button variant="outline" size="sm" className="gap-1.5 text-destructive hover:text-destructive">
-                <Square className="w-3.5 h-3.5" /> Stop
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5 text-destructive hover:text-destructive"
+                disabled={!!actionInProgress}
+                onClick={() => handleStreamAction('stopStream')}
+              >
+                {actionInProgress === 'stopStream' ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Square className="w-3.5 h-3.5" />
+                )}
+                Stop
               </Button>
             </>
           )}
@@ -364,7 +454,7 @@ export default function ContractorProjectDetailPage({ params }: { params: Promis
             <CardHeader className="pb-3">
               <CardTitle className="text-base font-semibold flex items-center gap-2">
                 Streaming Status
-                {project.status === 'active' && (
+                {liveStatus === 'active' && (
                   <span className="w-2 h-2 rounded-full bg-emerald-500 animate-live-dot" />
                 )}
               </CardTitle>
@@ -380,12 +470,12 @@ export default function ContractorProjectDetailPage({ params }: { params: Promis
                   </div>
                   <div className="flex-1 mx-4 relative">
                     <div className="h-[2px] bg-gradient-to-r from-primary to-emerald-500 relative overflow-hidden">
-                      {project.status === 'active' && (
+                      {liveStatus === 'active' && (
                         <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 to-transparent animate-shimmer" />
                       )}
                     </div>
                     <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-card px-2 py-0.5 rounded text-[9px] font-mono text-muted-foreground border border-border">
-                      {project.status === 'active' ? 'streaming' : project.status}
+                      {liveStatus === 'active' ? 'streaming' : liveStatus}
                     </div>
                   </div>
                   <div className="text-center">
@@ -399,7 +489,7 @@ export default function ContractorProjectDetailPage({ params }: { params: Promis
                 </div>
                 <div className="text-center">
                   <p className="text-xs text-muted-foreground mb-1">Total Streamed</p>
-                  {project.status === 'active' ? (
+                  {liveStatus === 'active' ? (
                     <StreamingCounter
                       baseValue={liveStreamed}
                       ratePerSecond={liveRate}
@@ -421,7 +511,7 @@ export default function ContractorProjectDetailPage({ params }: { params: Promis
                   startTimestamp={project.startTimestamp}
                   ratePerSecond={liveRate}
                   currency={project.currency}
-                  paused={project.status === 'paused'}
+                  paused={liveStatus !== 'active'}
                 />
               </div>
 

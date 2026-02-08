@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
-import { Pause, Play, Square, ExternalLink } from 'lucide-react'
+import { Pause, Play, Square, ExternalLink, Loader2 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
@@ -13,9 +13,11 @@ import { formatEther } from 'viem'
 import {
   getStoredProjects,
   queryStream,
+  sendStreamAction,
   type StoredProject,
   type StreamState,
 } from '@/lib/streaming'
+import { useWallet } from '@/components/wallet-provider'
 
 const POLL_INTERVAL = 15_000 // 15 seconds
 
@@ -24,8 +26,11 @@ interface ActiveProjectsGridProps {
 }
 
 export function ActiveProjectsGrid({ refreshKey }: ActiveProjectsGridProps) {
+  const { walletId, userToken, executeChallenge } = useWallet()
   const [projects, setProjects] = useState<StoredProject[]>([])
   const [streamStates, setStreamStates] = useState<Record<string, StreamState>>({})
+  // Tracks which project has an action in progress (projectId -> action name)
+  const [actionInProgress, setActionInProgress] = useState<Record<string, string>>({})
 
   // Load projects from localStorage
   useEffect(() => {
@@ -102,6 +107,60 @@ export function ActiveProjectsGrid({ refreshKey }: ActiveProjectsGridProps) {
     const milestones = spec?.milestones ?? []
     const totalTasks = milestones.reduce((sum, m) => sum + m.tasks.length, 0)
     return { tasksCompleted: 0, totalTasks }
+  }
+
+  async function handleStreamAction(
+    e: React.MouseEvent,
+    project: StoredProject,
+    action: 'pauseStream' | 'resumeStream' | 'stopStream',
+  ) {
+    e.preventDefault()
+    e.stopPropagation()
+    if (!walletId || !userToken) return
+
+    setActionInProgress((prev) => ({ ...prev, [project.id]: action }))
+    try {
+      const challengeId = await sendStreamAction(
+        action,
+        project.streamId,
+        project.treasuryAddress,
+        walletId,
+        userToken,
+      )
+      await executeChallenge(challengeId)
+
+      // Poll for updated state after a short delay
+      let retries = 0
+      const maxRetries = 10
+      while (retries < maxRetries) {
+        await new Promise((r) => setTimeout(r, 5000))
+        const state = await queryStream(project.treasuryAddress, project.streamId)
+        if (state) {
+          setStreamStates((prev) => ({ ...prev, [project.id]: state }))
+          // Check if the on-chain state reflects the expected change
+          const expectedPaused = action !== 'resumeStream'
+          if (state.paused === expectedPaused) {
+            setProjects((prev) =>
+              prev.map((p) =>
+                p.id === project.id
+                  ? { ...p, status: state.paused ? 'paused' : 'active' }
+                  : p,
+              ),
+            )
+            break
+          }
+        }
+        retries++
+      }
+    } catch (err) {
+      console.error(`Stream ${action} failed:`, err)
+    } finally {
+      setActionInProgress((prev) => {
+        const next = { ...prev }
+        delete next[project.id]
+        return next
+      })
+    }
   }
 
   if (projects.length === 0) {
@@ -202,29 +261,65 @@ export function ActiveProjectsGrid({ refreshKey }: ActiveProjectsGridProps) {
                   <div className="flex items-center gap-1.5 pt-1">
                     {project.status === 'active' && (
                       <>
-                        <Button variant="outline" size="sm" className="h-7 text-xs gap-1 flex-1">
-                          <Pause className="w-3 h-3" /> Pause
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-xs gap-1 flex-1"
+                          disabled={!!actionInProgress[project.id]}
+                          onClick={(e) => handleStreamAction(e, project, 'pauseStream')}
+                        >
+                          {actionInProgress[project.id] === 'pauseStream' ? (
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                          ) : (
+                            <Pause className="w-3 h-3" />
+                          )}
+                          Pause
                         </Button>
                         <Button
                           variant="outline"
                           size="sm"
                           className="h-7 text-xs gap-1 text-destructive hover:text-destructive"
+                          disabled={!!actionInProgress[project.id]}
+                          onClick={(e) => handleStreamAction(e, project, 'stopStream')}
                         >
-                          <Square className="w-3 h-3" /> Stop
+                          {actionInProgress[project.id] === 'stopStream' ? (
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                          ) : (
+                            <Square className="w-3 h-3" />
+                          )}
+                          Stop
                         </Button>
                       </>
                     )}
                     {project.status === 'paused' && (
                       <>
-                        <Button variant="outline" size="sm" className="h-7 text-xs gap-1 flex-1">
-                          <Play className="w-3 h-3" /> Resume
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-xs gap-1 flex-1"
+                          disabled={!!actionInProgress[project.id]}
+                          onClick={(e) => handleStreamAction(e, project, 'resumeStream')}
+                        >
+                          {actionInProgress[project.id] === 'resumeStream' ? (
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                          ) : (
+                            <Play className="w-3 h-3" />
+                          )}
+                          Resume
                         </Button>
                         <Button
                           variant="outline"
                           size="sm"
                           className="h-7 text-xs gap-1 text-destructive hover:text-destructive"
+                          disabled={!!actionInProgress[project.id]}
+                          onClick={(e) => handleStreamAction(e, project, 'stopStream')}
                         >
-                          <Square className="w-3 h-3" /> Stop
+                          {actionInProgress[project.id] === 'stopStream' ? (
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                          ) : (
+                            <Square className="w-3 h-3" />
+                          )}
+                          Stop
                         </Button>
                       </>
                     )}
@@ -233,6 +328,7 @@ export function ActiveProjectsGrid({ refreshKey }: ActiveProjectsGridProps) {
                         variant="ghost"
                         size="sm"
                         className="h-7 text-xs gap-1 flex-1 text-muted-foreground"
+                        onClick={(e) => { e.preventDefault(); e.stopPropagation() }}
                       >
                         <ExternalLink className="w-3 h-3" /> View Details
                       </Button>

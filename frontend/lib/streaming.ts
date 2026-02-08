@@ -1,4 +1,5 @@
-import { parseEther } from 'viem'
+import { parseEther, encodeFunctionData } from 'viem'
+import { STREAMING_TREASURY_ABI } from '@/contract/contractDetails'
 
 // ─── Rate conversion ────────────────────────────────────────────────────────
 
@@ -116,6 +117,51 @@ export async function queryNextStreamId(
   } catch {
     return -1
   }
+}
+
+// ─── Stream actions (pause / resume / stop) ─────────────────────────────────
+
+/**
+ * Encode + send a stream action via Circle contractExecution.
+ * Returns the challengeId for the caller to execute via Circle SDK.
+ */
+export async function sendStreamAction(
+  functionName: 'pauseStream' | 'resumeStream' | 'stopStream',
+  streamId: number,
+  treasuryAddress: string,
+  walletId: string,
+  userToken: string,
+): Promise<string> {
+  const callData = encodeFunctionData({
+    abi: STREAMING_TREASURY_ABI,
+    functionName,
+    args: [BigInt(streamId)],
+  })
+
+  const res = await fetch('/api/endpoints', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      action: 'contractExecution',
+      userToken,
+      walletId,
+      contractAddress: treasuryAddress,
+      callData,
+      feeLevel: 'MEDIUM',
+    }),
+  })
+
+  const data = await res.json()
+  if (!res.ok) {
+    throw new Error(data.message || data.error || 'Transaction failed')
+  }
+
+  const { challengeId } = data
+  if (!challengeId) {
+    throw new Error('No challengeId returned')
+  }
+
+  return challengeId
 }
 
 // ─── localStorage helpers ───────────────────────────────────────────────────
