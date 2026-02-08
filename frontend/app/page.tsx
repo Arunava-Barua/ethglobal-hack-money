@@ -1,5 +1,6 @@
 'use client'
 
+import Image from 'next/image'
 import Link from 'next/link'
 import { ArrowRight, Briefcase, Code2, Zap, Shield, TrendingUp } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -16,9 +17,7 @@ export default function LandingPage() {
           {/* Nav */}
           <nav className="flex items-center justify-between mb-20">
             <div className="flex items-center gap-2">
-              <div className="w-9 h-9 rounded-lg bg-primary flex items-center justify-center">
-                <span className="text-primary-foreground font-bold text-base">F</span>
-              </div>
+              <Image src="/stacpay-logo.png" alt="StarcPay" width={50} height={50} className="rounded-lg" />
               <span className="font-semibold text-foreground text-xl tracking-tight">StarcPay</span>
             </div>
             <div className="flex items-center gap-3">

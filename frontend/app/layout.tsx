@@ -18,6 +18,9 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: 'StarcPay - Web3 Contractor Platform',
   description: 'Streamlined contractor-freelancer payments powered by Web3',
+  icons: {
+    icon: '/stacpay-logo.png',
+  },
 }
 
 export default function RootLayout({

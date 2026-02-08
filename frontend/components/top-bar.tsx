@@ -1,5 +1,6 @@
 'use client'
 
+import Image from 'next/image'
 import { Bell, Download, Moon, Sun } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -34,9 +35,7 @@ export function TopBar({ role }: { role: 'contractor' | 'freelancer' }) {
     <header className="h-16 border-b border-border bg-card/80 backdrop-blur-sm flex items-center justify-between px-6 sticky top-0 z-40">
       <div className="flex items-center gap-3">
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
-            <span className="text-primary-foreground font-bold text-sm">F</span>
-          </div>
+          <Image src="/stacpay-logo.png" alt="StarcPay" width={50} height={50} className="rounded-lg" />
           <span className="font-semibold text-foreground text-lg tracking-tight">StarcPay</span>
         </div>
         <Badge variant="outline" className="text-xs font-medium capitalize border-border">

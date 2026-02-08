@@ -35,9 +35,11 @@ import {
 interface NewContractModalProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  treasuryAddress: string | null
+  contractorAddress: string | null
 }
 
-export function NewContractModal({ open, onOpenChange }: NewContractModalProps) {
+export function NewContractModal({ open, onOpenChange, treasuryAddress, contractorAddress }: NewContractModalProps) {
   const [freelancerAlias, setFreelancerAlias] = useState('')
   const [githubUsername, setGithubUsername] = useState('')
   const [walletAddress, setWalletAddress] = useState('')
@@ -136,7 +138,9 @@ export function NewContractModal({ open, onOpenChange }: NewContractModalProps) 
     const payload = {
       freelancerAlias,
       githubUsername,
-      walletAddress,
+      freelancerWalletAddress: walletAddress,
+      contractorAddress: contractorAddress ?? '',
+      treasuryAddress: treasuryAddress ?? '',
       taskSpecification: taskSpecification ?? {},
       githubRepo,
       googleMeetLink,
@@ -207,7 +211,7 @@ export function NewContractModal({ open, onOpenChange }: NewContractModalProps) 
               />
             </div>
             <div className="space-y-2">
-              <Label className="text-sm font-medium">Wallet Address</Label>
+              <Label className="text-sm font-medium">Freelancer Wallet Address</Label>
               <div className="relative">
                 <Input
                   placeholder="0x... or ENS name"

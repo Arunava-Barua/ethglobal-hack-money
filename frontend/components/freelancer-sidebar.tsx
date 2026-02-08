@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import Image from 'next/image'
 import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard,
@@ -37,15 +38,13 @@ export function FreelancerSidebar() {
       <Link href="/" className="h-16 flex items-center px-4 border-b border-sidebar-border hover:bg-sidebar-accent transition-colors">
         {!collapsed && (
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-sidebar-primary flex items-center justify-center flex-shrink-0">
-              <span className="text-sidebar-primary-foreground font-bold text-sm">F</span>
-            </div>
+            <Image src="/stacpay-logo.png" alt="StarcPay" width={50} height={50} className="rounded-lg flex-shrink-0" />
             <span className="font-semibold text-sidebar-foreground text-base tracking-tight">StarcPay</span>
           </div>
         )}
         {collapsed && (
-          <div className="w-8 h-8 rounded-lg bg-sidebar-primary flex items-center justify-center mx-auto">
-            <span className="text-sidebar-primary-foreground font-bold text-sm">F</span>
+          <div className="mx-auto">
+            <Image src="/stacpay-logo.png" alt="StarcPay" width={50} height={50} className="rounded-lg" />
           </div>
         )}
       </Link>

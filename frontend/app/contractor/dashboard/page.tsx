@@ -318,7 +318,7 @@ export default function ContractorDashboardPage() {
       <BudgetAnalytics />
 
       {/* New Contract Modal */}
-      <NewContractModal open={showNewContract} onOpenChange={setShowNewContract} />
+      <NewContractModal open={showNewContract} onOpenChange={setShowNewContract} treasuryAddress={treasuryAddress} contractorAddress={address} />
     </div>
   )
 }
