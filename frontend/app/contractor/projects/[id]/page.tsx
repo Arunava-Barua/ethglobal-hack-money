@@ -5,7 +5,7 @@ import Link from 'next/link'
 import {
   ArrowLeft, FileText, Github, Video, Pause, Play, Square,
   CheckCircle, Clock, AlertCircle, Bot, MessageSquare,
-  ShieldCheck, ShieldAlert, ShieldQuestion, TrendingUp, Loader2,
+  ShieldCheck, ShieldAlert, ShieldQuestion, TrendingUp, Loader2, Webhook,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -150,6 +150,19 @@ export default function ContractorProjectDetailPage({ params }: { params: Promis
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            onClick={() => {
+              console.log('Register Webhook:', {
+                projectId: project.id,
+                githubRepo: project.githubUrl,
+              })
+            }}
+          >
+            <Webhook className="w-3.5 h-3.5" /> Register Webhook
+          </Button>
           {liveStatus === 'active' && (
             <>
               <Button

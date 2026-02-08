@@ -1,12 +1,12 @@
-'use client'
+"use client";
 
-import { Wallet, Send, Zap, TrendingUp, Copy, LogOut } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
-import { StreamingFlowChart } from './streaming-flow-chart'
-import { WalletTransactionsCard } from './wallet-transactions-card'
-import { StreamingPaymentsCard } from './streaming-payments-card'
+import { Wallet, Send, Zap, TrendingUp, Copy, LogOut } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { StreamingFlowChart } from "./streaming-flow-chart";
+import { WalletTransactionsCard } from "./wallet-transactions-card";
+import { StreamingPaymentsCard } from "./streaming-payments-card";
 
 export function WalletPage() {
   return (
@@ -14,8 +14,12 @@ export function WalletPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-4xl font-bold text-foreground mb-2">Web3 Wallet & Streaming</h1>
-          <p className="text-muted-foreground">Manage crypto payments and streaming contracts</p>
+          <h1 className="text-4xl font-bold text-foreground mb-2">
+            Web3 Wallet & Streaming
+          </h1>
+          <p className="text-muted-foreground">
+            Manage crypto payments and streaming contracts
+          </p>
         </div>
       </div>
 
@@ -26,7 +30,9 @@ export function WalletPage() {
             <div className="flex items-center gap-4">
               <Wallet className="w-12 h-12 text-primary" />
               <div>
-                <h3 className="text-xl font-bold text-foreground mb-1">Connected Wallet</h3>
+                <h3 className="text-xl font-bold text-foreground mb-1">
+                  Connected Wallet
+                </h3>
                 <p className="text-sm text-muted-foreground">0x742d...e8aF</p>
               </div>
             </div>
@@ -36,7 +42,10 @@ export function WalletPage() {
                 <Copy className="w-4 h-4" />
                 Copy
               </Button>
-              <Button variant="outline" className="gap-2 text-destructive hover:text-destructive bg-transparent">
+              <Button
+                variant="outline"
+                className="gap-2 text-destructive hover:text-destructive bg-transparent"
+              >
                 <LogOut className="w-4 h-4" />
                 Disconnect
               </Button>
@@ -51,8 +60,10 @@ export function WalletPage() {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground mb-2">Available Balance</p>
-                <p className="text-3xl font-bold text-foreground">2.5 ETH</p>
+                <p className="text-sm text-muted-foreground mb-2">
+                  Available Balance
+                </p>
+                <p className="text-3xl font-bold text-foreground">2.5 USDC</p>
                 <p className="text-xs text-muted-foreground mt-1">≈ $4,250</p>
               </div>
               <Wallet className="w-12 h-12 text-primary" />
@@ -64,9 +75,13 @@ export function WalletPage() {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground mb-2">Streaming Balance</p>
-                <p className="text-3xl font-bold text-foreground">0.8 ETH</p>
-                <p className="text-xs text-muted-foreground mt-1">≈ $1,360/month</p>
+                <p className="text-sm text-muted-foreground mb-2">
+                  Streaming Balance
+                </p>
+                <p className="text-3xl font-bold text-foreground">0.8 USDC</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  ≈ $1,360/month
+                </p>
               </div>
               <Zap className="w-12 h-12 text-accent" />
             </div>
@@ -77,8 +92,10 @@ export function WalletPage() {
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted-foreground mb-2">Total Received</p>
-                <p className="text-3xl font-bold text-foreground">15.8 ETH</p>
+                <p className="text-sm text-muted-foreground mb-2">
+                  Total Received
+                </p>
+                <p className="text-3xl font-bold text-foreground">15.8 USDC</p>
                 <p className="text-xs text-green-600 mt-1">+5.2% this month</p>
               </div>
               <TrendingUp className="w-12 h-12 text-green-500" />
@@ -93,7 +110,9 @@ export function WalletPage() {
         <div className="lg:col-span-2">
           <Card className="bg-white border-0 shadow-sm">
             <CardHeader>
-              <CardTitle className="text-xl font-bold">Money Streaming Overview</CardTitle>
+              <CardTitle className="text-xl font-bold">
+                Money Streaming Overview
+              </CardTitle>
             </CardHeader>
             <CardContent>
               <StreamingFlowChart />
@@ -130,7 +149,9 @@ export function WalletPage() {
               <div className="space-y-2 text-sm">
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Chain:</span>
-                  <span className="font-semibold text-foreground">Ethereum</span>
+                  <span className="font-semibold text-foreground">
+                    Ethereum
+                  </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Network:</span>
@@ -152,5 +173,5 @@ export function WalletPage() {
         <StreamingPaymentsCard />
       </div>
     </div>
-  )
+  );
 }

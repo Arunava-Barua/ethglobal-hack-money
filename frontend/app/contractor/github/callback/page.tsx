@@ -1,10 +1,10 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, Suspense } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { setStoredInstallation } from '@/lib/github'
 
-export default function GitHubCallbackPage() {
+function GitHubCallbackContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
 
@@ -15,12 +15,24 @@ export default function GitHubCallbackPage() {
       setStoredInstallation(installationId)
     }
 
-    router.replace('/freelancer/dashboard')
+    router.replace('/contractor/dashboard')
   }, [searchParams, router])
 
   return (
     <div className="flex items-center justify-center h-full">
       <p className="text-sm text-muted-foreground">Connecting GitHub...</p>
     </div>
+  )
+}
+
+export default function GitHubCallbackPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex items-center justify-center h-full">
+        <p className="text-sm text-muted-foreground">Connecting GitHub...</p>
+      </div>
+    }>
+      <GitHubCallbackContent />
+    </Suspense>
   )
 }

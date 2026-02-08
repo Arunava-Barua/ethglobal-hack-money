@@ -1,51 +1,84 @@
-'use client'
+"use client";
 
-import Image from 'next/image'
-import { Bell, Download, Moon, Sun } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
+import Image from "next/image";
+import { Bell, Download, Moon, Sun } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
-import { useTheme } from 'next-themes'
-import { ConnectWallet } from '@/components/connect-wallet'
+} from "@/components/ui/dropdown-menu";
+import { useTheme } from "next-themes";
+import { ConnectWallet } from "@/components/connect-wallet";
 
 interface Notification {
-  id: string
-  title: string
-  message: string
-  time: string
-  unread: boolean
+  id: string;
+  title: string;
+  message: string;
+  time: string;
+  unread: boolean;
 }
 
 const mockNotifications: Notification[] = [
-  { id: '1', title: 'Contract Started', message: 'Streaming payout initiated for Frontend Project', time: '2m ago', unread: true },
-  { id: '2', title: 'Milestone Completed', message: 'Task #3 verified by agentic evaluation', time: '1h ago', unread: true },
-  { id: '3', title: 'Payment Received', message: '0.5 ETH received from TechStart Inc', time: '3h ago', unread: false },
-]
+  {
+    id: "1",
+    title: "Contract Started",
+    message: "Streaming payout initiated for Frontend Project",
+    time: "2m ago",
+    unread: true,
+  },
+  {
+    id: "2",
+    title: "Milestone Completed",
+    message: "Task #3 verified by agentic evaluation",
+    time: "1h ago",
+    unread: true,
+  },
+  {
+    id: "3",
+    title: "Payment Received",
+    message: "0.5 USDC received from TechStart Inc",
+    time: "3h ago",
+    unread: false,
+  },
+];
 
-export function TopBar({ role }: { role: 'contractor' | 'freelancer' }) {
-  const { theme, setTheme } = useTheme()
-  const unreadCount = mockNotifications.filter(n => n.unread).length
+export function TopBar({ role }: { role: "contractor" | "freelancer" }) {
+  const { theme, setTheme } = useTheme();
+  const unreadCount = mockNotifications.filter((n) => n.unread).length;
 
   return (
     <header className="h-16 border-b border-border bg-card/80 backdrop-blur-sm flex items-center justify-between px-6 sticky top-0 z-40">
       <div className="flex items-center gap-3">
         <div className="flex items-center gap-2">
-          <Image src="/stacpay-logo.png" alt="StarcPay" width={50} height={50} className="rounded-lg" />
-          <span className="font-semibold text-foreground text-lg tracking-tight">StarcPay</span>
+          <Image
+            src="/stacpay-logo.png"
+            alt="StarcPay"
+            width={50}
+            height={50}
+            className="rounded-lg"
+          />
+          <span className="font-semibold text-foreground text-lg tracking-tight">
+            StarcPay
+          </span>
         </div>
-        <Badge variant="outline" className="text-xs font-medium capitalize border-border">
+        <Badge
+          variant="outline"
+          className="text-xs font-medium capitalize border-border"
+        >
           {role}
         </Badge>
       </div>
 
       <div className="flex items-center gap-2">
         {/* Export Data */}
-        <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="text-muted-foreground hover:text-foreground"
+        >
           <Download className="w-4 h-4" />
         </Button>
 
@@ -53,7 +86,7 @@ export function TopBar({ role }: { role: 'contractor' | 'freelancer' }) {
         <Button
           variant="ghost"
           size="icon"
-          onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+          onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
           className="text-muted-foreground hover:text-foreground"
         >
           <Sun className="w-4 h-4 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
@@ -63,7 +96,11 @@ export function TopBar({ role }: { role: 'contractor' | 'freelancer' }) {
         {/* Notifications */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="relative text-muted-foreground hover:text-foreground">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="relative text-muted-foreground hover:text-foreground"
+            >
               <Bell className="w-4 h-4" />
               {unreadCount > 0 && (
                 <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-accent text-accent-foreground text-[10px] font-bold rounded-full flex items-center justify-center">
@@ -77,13 +114,22 @@ export function TopBar({ role }: { role: 'contractor' | 'freelancer' }) {
               <p className="font-semibold text-sm">Notifications</p>
             </div>
             {mockNotifications.map((n) => (
-              <DropdownMenuItem key={n.id} className="flex flex-col items-start gap-1 p-3 cursor-pointer">
+              <DropdownMenuItem
+                key={n.id}
+                className="flex flex-col items-start gap-1 p-3 cursor-pointer"
+              >
                 <div className="flex items-center gap-2 w-full">
                   <span className="font-medium text-sm">{n.title}</span>
-                  {n.unread && <span className="w-2 h-2 rounded-full bg-accent ml-auto flex-shrink-0" />}
+                  {n.unread && (
+                    <span className="w-2 h-2 rounded-full bg-accent ml-auto flex-shrink-0" />
+                  )}
                 </div>
-                <span className="text-xs text-muted-foreground">{n.message}</span>
-                <span className="text-xs text-muted-foreground/60">{n.time}</span>
+                <span className="text-xs text-muted-foreground">
+                  {n.message}
+                </span>
+                <span className="text-xs text-muted-foreground/60">
+                  {n.time}
+                </span>
               </DropdownMenuItem>
             ))}
           </DropdownMenuContent>
@@ -93,5 +139,5 @@ export function TopBar({ role }: { role: 'contractor' | 'freelancer' }) {
         <ConnectWallet />
       </div>
     </header>
-  )
+  );
 }

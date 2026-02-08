@@ -20,9 +20,6 @@ export default function FreelancerDashboardPage() {
       {/* Overview Cards + GitHub Connect */}
       <FreelancerOverviewCards />
 
-      {/* Incoming Contract Requests */}
-      <IncomingRequests />
-
       {/* Active Projects */}
       <FreelancerActiveProjects />
 
