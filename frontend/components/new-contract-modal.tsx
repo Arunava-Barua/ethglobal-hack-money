@@ -13,6 +13,7 @@ import {
   Loader2,
   CheckCircle,
   User,
+  AlertCircle,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -31,15 +32,33 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { encodeFunctionData, type Address } from 'viem'
+import { useWallet } from '@/components/wallet-provider'
+import { STREAMING_TREASURY_ABI } from '@/contract/contractDetails'
+import {
+  convertRateToPerSecond,
+  queryNextStreamId,
+  saveProject,
+  type StoredProject,
+} from '@/lib/streaming'
 
 interface NewContractModalProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   treasuryAddress: string | null
   contractorAddress: string | null
+  onContractCreated?: () => void
 }
 
-export function NewContractModal({ open, onOpenChange, treasuryAddress, contractorAddress }: NewContractModalProps) {
+export function NewContractModal({
+  open,
+  onOpenChange,
+  treasuryAddress,
+  contractorAddress,
+  onContractCreated,
+}: NewContractModalProps) {
+  const { walletId, userToken, executeChallenge } = useWallet()
+
   const [freelancerAlias, setFreelancerAlias] = useState('')
   const [githubUsername, setGithubUsername] = useState('')
   const [walletAddress, setWalletAddress] = useState('')
@@ -52,11 +71,16 @@ export function NewContractModal({ open, onOpenChange, treasuryAddress, contract
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
 
-  // PDF state
+  // File state
   const [fileName, setFileName] = useState('')
   const [isParsing, setIsParsing] = useState(false)
   const [taskSpecification, setTaskSpecification] = useState<Record<string, unknown> | null>(null)
   const [pdfError, setPdfError] = useState<string | null>(null)
+
+  // Submission state
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [submitStatus, setSubmitStatus] = useState<string | null>(null)
+  const [submitError, setSubmitError] = useState<string | null>(null)
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -128,36 +152,160 @@ export function NewContractModal({ open, onOpenChange, treasuryAddress, contract
     }
   }
 
-  const handleSubmit = () => {
-    const startTimestamp = startDate ? Math.floor(new Date(startDate).getTime() / 1000) : 0
-    const endTimestamp = endDate ? Math.floor(new Date(endDate).getTime() / 1000) : 0
-    const tenureDays = startTimestamp && endTimestamp
-      ? Math.round((endTimestamp - startTimestamp) / 86400)
-      : 0
-
-    const payload = {
-      freelancerAlias,
-      githubUsername,
-      freelancerWalletAddress: walletAddress,
-      contractorAddress: contractorAddress ?? '',
-      treasuryAddress: treasuryAddress ?? '',
-      taskSpecification: taskSpecification ?? {},
-      githubRepo,
-      googleMeetLink,
-      totalBudgetInUSDC: parseFloat(totalBudget) || 0,
-      streamingRate: parseFloat(streamingRate) || 0,
-      streamingInitRate: 0,
-      streamingUnit,
-      evaluationMode,
-      startDate: startTimestamp,
-      endDate: endTimestamp,
-      totalTenureInDays: tenureDays,
-      streamId: Math.floor(Math.random() * 1_000_000),
+  const handleSubmit = async () => {
+    // Validation
+    if (!treasuryAddress) {
+      setSubmitError('No treasury found. Please create a treasury first.')
+      return
+    }
+    if (!walletId || !userToken) {
+      setSubmitError('Wallet not connected or session expired.')
+      return
+    }
+    if (!walletAddress) {
+      setSubmitError('Please enter the freelancer wallet address.')
+      return
+    }
+    const rate = parseFloat(streamingRate)
+    if (!rate || rate <= 0) {
+      setSubmitError('Please enter a valid streaming rate.')
+      return
     }
 
-    console.log('Contract Payload:', payload)
-    resetForm()
-    onOpenChange(false)
+    setIsSubmitting(true)
+    setSubmitError(null)
+    setSubmitStatus('Converting rate and preparing transaction...')
+
+    try {
+      // 1. Convert rate to per-second in wei
+      const ratePerSecond = convertRateToPerSecond(rate, streamingUnit)
+      console.log('[Stream] ratePerSecond (wei):', ratePerSecond.toString())
+
+      // 2. Get current nextStreamId so we know what our streamId will be
+      setSubmitStatus('Reading current stream counter...')
+      const currentNextId = await queryNextStreamId(treasuryAddress)
+      console.log('[Stream] currentNextStreamId:', currentNextId)
+
+      // 3. Call contractExecution for createStream
+      setSubmitStatus('Creating stream transaction...')
+      // Encode callData ourselves using viem so Circle just submits raw data
+      const callData = encodeFunctionData({
+        abi: STREAMING_TREASURY_ABI,
+        functionName: 'createStream',
+        args: [walletAddress as Address, ratePerSecond],
+      })
+      console.log('[Stream] callData:', callData)
+
+      const res = await fetch('/api/endpoints', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'contractExecution',
+          userToken,
+          walletId,
+          contractAddress: treasuryAddress,
+          callData,
+          feeLevel: 'MEDIUM',
+        }),
+      })
+
+      const data = await res.json()
+      console.log('[Stream] createStream response:', data)
+
+      if (!res.ok) {
+        throw new Error(data.message || data.error || 'Failed to create stream transaction')
+      }
+
+      const { challengeId } = data
+      if (!challengeId) {
+        throw new Error('No challengeId returned from API')
+      }
+
+      // 4. Execute challenge (user signs via Circle SDK)
+      setSubmitStatus('Please sign the transaction...')
+      await executeChallenge(challengeId)
+      console.log('[Stream] Challenge executed successfully')
+
+      // 5. Poll nextStreamId to confirm creation
+      setSubmitStatus('Confirming stream on-chain...')
+      let confirmedStreamId = currentNextId
+      let retries = 0
+      const maxRetries = 12
+      while (retries < maxRetries) {
+        await new Promise((r) => setTimeout(r, 5000))
+        const newNextId = await queryNextStreamId(treasuryAddress)
+        console.log(`[Stream poll ${retries + 1}/${maxRetries}] nextStreamId:`, newNextId)
+        if (newNextId > currentNextId) {
+          confirmedStreamId = currentNextId // the stream we just created
+          break
+        }
+        retries++
+      }
+
+      if (retries >= maxRetries) {
+        console.warn('[Stream] Polling timed out, using expected streamId:', currentNextId)
+      }
+
+      // 6. Build timestamps & tenure
+      const startTimestamp = startDate ? Math.floor(new Date(startDate).getTime() / 1000) : 0
+      const endTimestamp = endDate ? Math.floor(new Date(endDate).getTime() / 1000) : 0
+      const tenureDays =
+        startTimestamp && endTimestamp
+          ? Math.round((endTimestamp - startTimestamp) / 86400)
+          : 0
+
+      // 7. Derive project name & initials
+      const spec = taskSpecification as { projectTitle?: string; milestones?: { title: string; tasks: string[] }[] } | null
+      const projectName = spec?.projectTitle || `Contract with ${freelancerAlias}`
+      const initials = freelancerAlias
+        .split(/[_\s-]/)
+        .map((w) => w[0]?.toUpperCase() ?? '')
+        .join('')
+        .slice(0, 2)
+
+      // 8. Save to localStorage
+      const project: StoredProject = {
+        id: `stream-${confirmedStreamId}`,
+        name: projectName,
+        freelancerAlias,
+        freelancerInitials: initials,
+        freelancerWalletAddress: walletAddress,
+        contractorAddress: contractorAddress ?? '',
+        treasuryAddress,
+        streamId: confirmedStreamId,
+        ratePerSecond: ratePerSecond.toString(),
+        status: 'active',
+        totalBudgetInUSDC: parseFloat(totalBudget) || 0,
+        evaluationMode,
+        githubRepo,
+        googleMeetLink,
+        taskSpecification: taskSpecification ?? {},
+        streamingUnit,
+        streamingRate: rate,
+        startDate: startTimestamp,
+        endDate: endTimestamp,
+        totalTenureInDays: tenureDays,
+        createdAt: Math.floor(Date.now() / 1000),
+      }
+
+      saveProject(project)
+      console.log('[Stream] Project saved:', project)
+
+      setSubmitStatus('Stream created successfully!')
+      onContractCreated?.()
+
+      // Brief delay to show success, then close
+      await new Promise((r) => setTimeout(r, 1500))
+      resetForm()
+      onOpenChange(false)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Stream creation failed'
+      setSubmitError(message)
+      console.error('[Stream] Error:', err)
+    } finally {
+      setIsSubmitting(false)
+      setSubmitStatus(null)
+    }
   }
 
   const resetForm = () => {
@@ -176,10 +324,12 @@ export function NewContractModal({ open, onOpenChange, treasuryAddress, contract
     setIsParsing(false)
     setTaskSpecification(null)
     setPdfError(null)
+    setSubmitError(null)
+    setSubmitStatus(null)
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={isSubmitting ? undefined : onOpenChange} modal={!isSubmitting}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-xl font-bold">Initiate New Contract</DialogTitle>
@@ -189,6 +339,24 @@ export function NewContractModal({ open, onOpenChange, treasuryAddress, contract
         </DialogHeader>
 
         <div className="space-y-6 pt-2">
+          {/* Status Messages */}
+          {submitError && (
+            <div className="flex items-center gap-2 p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-sm">
+              <AlertCircle className="w-4 h-4 flex-shrink-0" />
+              {submitError}
+            </div>
+          )}
+          {submitStatus && (
+            <div className="flex items-center gap-2 p-3 rounded-lg bg-primary/10 border border-primary/20 text-primary text-sm">
+              {isSubmitting ? (
+                <Loader2 className="w-4 h-4 flex-shrink-0 animate-spin" />
+              ) : (
+                <CheckCircle className="w-4 h-4 flex-shrink-0" />
+              )}
+              {submitStatus}
+            </div>
+          )}
+
           {/* Freelancer Info */}
           <div className="grid grid-cols-3 gap-4">
             <div className="space-y-2">
@@ -197,6 +365,7 @@ export function NewContractModal({ open, onOpenChange, treasuryAddress, contract
                 placeholder="e.g. alex_dev"
                 value={freelancerAlias}
                 onChange={(e) => setFreelancerAlias(e.target.value)}
+                disabled={isSubmitting}
               />
             </div>
             <div className="space-y-2">
@@ -208,6 +377,7 @@ export function NewContractModal({ open, onOpenChange, treasuryAddress, contract
                 placeholder="e.g. alexdev"
                 value={githubUsername}
                 onChange={(e) => setGithubUsername(e.target.value)}
+                disabled={isSubmitting}
               />
             </div>
             <div className="space-y-2">
@@ -218,6 +388,7 @@ export function NewContractModal({ open, onOpenChange, treasuryAddress, contract
                   className="pr-10 font-mono text-sm"
                   value={walletAddress}
                   onChange={(e) => setWalletAddress(e.target.value)}
+                  disabled={isSubmitting}
                 />
                 <Wallet className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               </div>
@@ -228,7 +399,7 @@ export function NewContractModal({ open, onOpenChange, treasuryAddress, contract
           <div className="space-y-2">
             <Label className="text-sm font-medium">Task Specifications (.md)</Label>
             <div className="relative">
-              <label className="flex items-center gap-3 px-4 py-3 border border-dashed border-border rounded-lg cursor-pointer hover:bg-muted/50 transition-colors">
+              <label className={`flex items-center gap-3 px-4 py-3 border border-dashed border-border rounded-lg cursor-pointer hover:bg-muted/50 transition-colors ${isSubmitting ? 'pointer-events-none opacity-60' : ''}`}>
                 {isParsing ? (
                   <Loader2 className="w-5 h-5 text-muted-foreground animate-spin" />
                 ) : taskSpecification ? (
@@ -248,6 +419,7 @@ export function NewContractModal({ open, onOpenChange, treasuryAddress, contract
                   accept=".md"
                   className="hidden"
                   onChange={handleFileChange}
+                  disabled={isSubmitting}
                 />
               </label>
             </div>
@@ -277,6 +449,7 @@ export function NewContractModal({ open, onOpenChange, treasuryAddress, contract
                 placeholder="https://github.com/..."
                 value={githubRepo}
                 onChange={(e) => setGithubRepo(e.target.value)}
+                disabled={isSubmitting}
               />
             </div>
             <div className="space-y-2">
@@ -288,6 +461,7 @@ export function NewContractModal({ open, onOpenChange, treasuryAddress, contract
                 placeholder="https://meet.google.com/..."
                 value={googleMeetLink}
                 onChange={(e) => setGoogleMeetLink(e.target.value)}
+                disabled={isSubmitting}
               />
             </div>
           </div>
@@ -301,6 +475,7 @@ export function NewContractModal({ open, onOpenChange, treasuryAddress, contract
                 placeholder="0.00"
                 value={totalBudget}
                 onChange={(e) => setTotalBudget(e.target.value)}
+                disabled={isSubmitting}
               />
             </div>
             <div className="space-y-2">
@@ -315,8 +490,9 @@ export function NewContractModal({ open, onOpenChange, treasuryAddress, contract
                   className="flex-1"
                   value={streamingRate}
                   onChange={(e) => setStreamingRate(e.target.value)}
+                  disabled={isSubmitting}
                 />
-                <Select value={streamingUnit} onValueChange={setStreamingUnit}>
+                <Select value={streamingUnit} onValueChange={setStreamingUnit} disabled={isSubmitting}>
                   <SelectTrigger className="w-[100px]">
                     <SelectValue />
                   </SelectTrigger>
@@ -337,11 +513,12 @@ export function NewContractModal({ open, onOpenChange, treasuryAddress, contract
               <button
                 type="button"
                 onClick={() => setEvaluationMode('agentic')}
+                disabled={isSubmitting}
                 className={`flex items-center gap-3 p-4 rounded-lg border-2 transition-all text-left ${
                   evaluationMode === 'agentic'
                     ? 'border-primary bg-primary/5'
                     : 'border-border hover:border-primary/30'
-                }`}
+                } ${isSubmitting ? 'opacity-60 pointer-events-none' : ''}`}
               >
                 <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
                   evaluationMode === 'agentic' ? 'bg-primary/15' : 'bg-muted'
@@ -356,11 +533,12 @@ export function NewContractModal({ open, onOpenChange, treasuryAddress, contract
               <button
                 type="button"
                 onClick={() => setEvaluationMode('manual')}
+                disabled={isSubmitting}
                 className={`flex items-center gap-3 p-4 rounded-lg border-2 transition-all text-left ${
                   evaluationMode === 'manual'
                     ? 'border-primary bg-primary/5'
                     : 'border-border hover:border-primary/30'
-                }`}
+                } ${isSubmitting ? 'opacity-60 pointer-events-none' : ''}`}
               >
                 <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
                   evaluationMode === 'manual' ? 'bg-primary/15' : 'bg-muted'
@@ -388,6 +566,7 @@ export function NewContractModal({ open, onOpenChange, treasuryAddress, contract
                   type="date"
                   value={startDate}
                   onChange={(e) => setStartDate(e.target.value)}
+                  disabled={isSubmitting}
                 />
               </div>
               <div className="space-y-1">
@@ -396,6 +575,7 @@ export function NewContractModal({ open, onOpenChange, treasuryAddress, contract
                   type="date"
                   value={endDate}
                   onChange={(e) => setEndDate(e.target.value)}
+                  disabled={isSubmitting}
                 />
               </div>
             </div>
@@ -407,15 +587,21 @@ export function NewContractModal({ open, onOpenChange, treasuryAddress, contract
               onClick={() => onOpenChange(false)}
               variant="outline"
               className="flex-1"
+              disabled={isSubmitting}
             >
               Cancel
             </Button>
             <Button
               className="flex-1 gap-2 bg-primary hover:bg-primary/90 text-primary-foreground"
               onClick={handleSubmit}
+              disabled={isSubmitting}
             >
-              <Zap className="w-4 h-4" />
-              Initiate Contract
+              {isSubmitting ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Zap className="w-4 h-4" />
+              )}
+              {isSubmitting ? 'Creating Stream...' : 'Initiate Contract'}
             </Button>
           </div>
         </div>

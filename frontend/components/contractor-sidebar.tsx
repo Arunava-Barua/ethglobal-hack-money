@@ -23,11 +23,11 @@ import { useState } from 'react'
 const navItems = [
   { label: 'Dashboard', icon: LayoutDashboard, href: '/contractor/dashboard' },
   { label: 'Projects', icon: FolderKanban, href: '/contractor/projects' },
-  { label: 'Freelancers', icon: Users, href: '/contractor/freelancers' },
-  { label: 'Contracts', icon: FileText, href: '/contractor/contracts' },
-  { label: 'Payments & Streams', icon: CreditCard, href: '/contractor/payments' },
+  // { label: 'Freelancers', icon: Users, href: '/contractor/freelancers' },
+  // { label: 'Contracts', icon: FileText, href: '/contractor/contracts' },
+  // { label: 'Payments & Streams', icon: CreditCard, href: '/contractor/payments' },
   { label: 'Analytics', icon: BarChart3, href: '/contractor/analytics' },
-  { label: 'Documents', icon: Files, href: '/contractor/documents' },
+  // { label: 'Documents', icon: Files, href: '/contractor/documents' },
   { label: 'Settings', icon: Settings, href: '/contractor/settings' },
 ]
 

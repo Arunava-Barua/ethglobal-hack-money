@@ -1,6 +1,6 @@
 'use client'
 
-import { use } from 'react'
+import { use, useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
 import {
   ArrowLeft, FileText, Github, Video, Pause, Play, Square,
@@ -16,11 +16,30 @@ import { Separator } from '@/components/ui/separator'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { StatusBadge } from '@/components/status-badge'
 import { StreamingCounter } from '@/components/streaming-counter'
+import { StreamedAmountChart } from '@/components/streamed-amount-chart'
 import { getProjectDetail } from '@/lib/mock-project'
+import { queryStream, type StreamState } from '@/lib/streaming'
+import { formatEther } from 'viem'
+
+const POLL_INTERVAL = 15_000
 
 export default function ContractorProjectDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
   const project = getProjectDetail(id)
+  const [streamState, setStreamState] = useState<StreamState | null>(null)
+
+  // Poll on-chain stream state
+  const pollStream = useCallback(async () => {
+    if (!project?.treasuryAddress || project.streamId == null) return
+    const state = await queryStream(project.treasuryAddress, project.streamId)
+    if (state) setStreamState(state)
+  }, [project?.treasuryAddress, project?.streamId])
+
+  useEffect(() => {
+    pollStream()
+    const interval = setInterval(pollStream, POLL_INTERVAL)
+    return () => clearInterval(interval)
+  }, [pollStream])
 
   if (!project) {
     return (
@@ -35,8 +54,26 @@ export default function ContractorProjectDetailPage({ params }: { params: Promis
     )
   }
 
+  // Compute live values from on-chain state when available
+  const liveRate = streamState
+    ? parseFloat(formatEther(BigInt(streamState.ratePerSecond)))
+    : project.streamRate
+
+  const liveStreamed = (() => {
+    if (streamState) {
+      const accruedWei = BigInt(streamState.accrued)
+      const rateWei = BigInt(streamState.ratePerSecond)
+      const elapsed = streamState.paused
+        ? 0n
+        : BigInt(Math.floor(Date.now() / 1000) - streamState.lastTimestamp)
+      const totalWei = accruedWei + rateWei * elapsed
+      return parseFloat(formatEther(totalWei))
+    }
+    return project.streamed
+  })()
+
   const completedMilestones = project.milestones.filter((m) => m.status === 'completed').length
-  const budgetUsedPct = Math.round((project.streamed / project.budget) * 100)
+  const budgetUsedPct = Math.round((liveStreamed / project.budget) * 100)
 
   return (
     <div className="p-6 lg:p-8 max-w-[1400px] mx-auto space-y-6">
@@ -113,7 +150,7 @@ export default function ContractorProjectDetailPage({ params }: { params: Promis
         <Card className="bg-card border border-border shadow-sm">
           <CardContent className="pt-4 pb-4">
             <p className="text-xs text-muted-foreground">Stream Rate</p>
-            <p className="text-lg font-bold font-mono">{project.streamRate} <span className="text-xs font-normal text-muted-foreground">{project.currency}/s</span></p>
+            <p className="text-lg font-bold font-mono">{liveRate.toFixed(10)} <span className="text-xs font-normal text-muted-foreground">{project.currency}/s</span></p>
           </CardContent>
         </Card>
       </div>
@@ -364,23 +401,34 @@ export default function ContractorProjectDetailPage({ params }: { params: Promis
                   <p className="text-xs text-muted-foreground mb-1">Total Streamed</p>
                   {project.status === 'active' ? (
                     <StreamingCounter
-                      baseValue={project.streamed}
-                      ratePerSecond={project.streamRate}
+                      baseValue={liveStreamed}
+                      ratePerSecond={liveRate}
                       suffix={` ${project.currency}`}
                       decimals={6}
                       className="text-xl font-bold text-foreground"
                     />
                   ) : (
                     <span className="text-xl font-bold text-foreground font-mono">
-                      {project.streamed.toFixed(6)} {project.currency}
+                      {liveStreamed.toFixed(6)} {project.currency}
                     </span>
                   )}
                 </div>
               </div>
+              {/* Streamed Amount Chart */}
+              <div>
+                <p className="text-xs text-muted-foreground mb-2">Streamed Over Time</p>
+                <StreamedAmountChart
+                  startTimestamp={project.startTimestamp}
+                  ratePerSecond={liveRate}
+                  currency={project.currency}
+                  paused={project.status === 'paused'}
+                />
+              </div>
+
               <div className="space-y-2 text-sm">
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Rate</span>
-                  <span className="font-medium font-mono">{project.streamRate} {project.currency}/sec</span>
+                  <span className="font-medium font-mono">{liveRate.toFixed(10)} {project.currency}/sec</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Budget Used</span>
@@ -388,7 +436,7 @@ export default function ContractorProjectDetailPage({ params }: { params: Promis
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Remaining</span>
-                  <span className="font-medium font-mono">{(project.budget - project.streamed).toFixed(4)} {project.currency}</span>
+                  <span className="font-medium font-mono">{(project.budget - liveStreamed).toFixed(4)} {project.currency}</span>
                 </div>
               </div>
             </CardContent>

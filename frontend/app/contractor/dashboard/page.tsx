@@ -28,6 +28,7 @@ export default function ContractorDashboardPage() {
   const [depositAmount, setDepositAmount] = useState('')
   const [txError, setTxError] = useState<string | null>(null)
   const [txSuccess, setTxSuccess] = useState<string | null>(null)
+  const [projectsKey, setProjectsKey] = useState(0)
 
   const clearMessages = () => {
     setTxError(null)
@@ -312,13 +313,25 @@ export default function ContractorDashboardPage() {
       <ContractorOverviewCards />
 
       {/* Active Projects Grid */}
-      <ActiveProjectsGrid />
+      <ActiveProjectsGrid refreshKey={projectsKey} />
 
       {/* Budget & Streaming Analytics */}
       <BudgetAnalytics />
 
       {/* New Contract Modal */}
-      <NewContractModal open={showNewContract} onOpenChange={setShowNewContract} treasuryAddress={treasuryAddress} contractorAddress={address} />
+      <NewContractModal
+        open={showNewContract}
+        onOpenChange={setShowNewContract}
+        treasuryAddress={treasuryAddress}
+        contractorAddress={address}
+        onContractCreated={() => {
+          setProjectsKey((k) => k + 1)
+          // Refresh treasury balance after stream creation
+          if (treasuryAddress) {
+            getTreasuryBalance(treasuryAddress).then(setTreasuryBalance).catch(() => {})
+          }
+        }}
+      />
     </div>
   )
 }

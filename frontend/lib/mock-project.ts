@@ -54,6 +54,9 @@ export interface ProjectDetail {
   endDate: string
   githubUrl: string
   meetLink: string
+  startTimestamp: number
+  treasuryAddress: string | null
+  streamId: number | null
   pdfName: string
   milestones: Milestone[]
   agenticApprovals: AgenticApproval[]
@@ -83,6 +86,9 @@ export const mockProjectDetails: Record<string, ProjectDetail> = {
     totalTasks: 20,
     startDate: 'Jan 15, 2026',
     endDate: 'Mar 15, 2026',
+    startTimestamp: Math.floor(new Date('Jan 15, 2026').getTime() / 1000),
+    treasuryAddress: null,
+    streamId: null,
     githubUrl: 'https://github.com/example/defi-dashboard',
     meetLink: 'https://meet.google.com/abc-defg-hij',
     pdfName: 'defi_dashboard_specs.pdf',
@@ -201,6 +207,9 @@ export const mockProjectDetails: Record<string, ProjectDetail> = {
     totalTasks: 10,
     startDate: 'Jan 20, 2026',
     endDate: 'Mar 20, 2026',
+    startTimestamp: Math.floor(new Date('Jan 20, 2026').getTime() / 1000),
+    treasuryAddress: null,
+    streamId: null,
     githubUrl: 'https://github.com/example/contract-audit',
     meetLink: 'https://meet.google.com/xyz-abcd-efg',
     pdfName: 'audit_scope.pdf',
@@ -256,5 +265,81 @@ export const mockProjectDetails: Record<string, ProjectDetail> = {
 }
 
 export function getProjectDetail(id: string): ProjectDetail | null {
-  return mockProjectDetails[id] ?? null
+  // Check mock data first
+  if (mockProjectDetails[id]) return mockProjectDetails[id]
+
+  // Check localStorage projects
+  try {
+    const stored = JSON.parse(localStorage.getItem('starcpay_active_projects') ?? '[]')
+    const project = stored.find((p: Record<string, unknown>) => p.id === id)
+    if (!project) return null
+
+    const spec = project.taskSpecification as {
+      projectTitle?: string
+      description?: string
+      milestones?: { title: string; tasks: string[] }[]
+    } | null
+
+    const milestones: Milestone[] = (spec?.milestones ?? []).map(
+      (m: { title: string; tasks: string[] }, i: number) => ({
+        id: `ms-${i}`,
+        title: m.title,
+        status: 'pending' as const,
+        dueDate: '—',
+        approvedBy: null,
+      }),
+    )
+
+    const totalTasks = milestones.length
+    const formatDate = (ts: number) =>
+      ts ? new Date(ts * 1000).toLocaleDateString() : '—'
+
+    const ratePerSecondHuman = parseFloat(
+      (Number(BigInt(project.ratePerSecond)) / 1e18).toFixed(10),
+    )
+
+    const elapsedSeconds = Math.max(0, Math.floor(Date.now() / 1000) - project.createdAt)
+    const streamed = ratePerSecondHuman * elapsedSeconds
+
+    return {
+      id: project.id,
+      name: project.name,
+      description: spec?.description ?? '',
+      freelancerAlias: project.freelancerAlias,
+      freelancerInitials: project.freelancerInitials,
+      freelancerWallet: project.freelancerWalletAddress,
+      contractorName: 'You',
+      contractorInitials: 'ME',
+      status: project.status,
+      mode: project.evaluationMode,
+      budget: project.totalBudgetInUSDC,
+      currency: 'USDC',
+      streamed,
+      streamRate: ratePerSecondHuman,
+      progress: 0,
+      tasksCompleted: 0,
+      totalTasks,
+      startDate: formatDate(project.createdAt),
+      endDate: formatDate(project.endDate),
+      startTimestamp: project.createdAt,
+      treasuryAddress: project.treasuryAddress,
+      streamId: project.streamId,
+      githubUrl: project.githubRepo,
+      meetLink: project.googleMeetLink,
+      pdfName: 'Task Spec',
+      milestones,
+      agenticApprovals: [],
+      agenticComments: [],
+      activityLog: [
+        {
+          id: 'evt-1',
+          event: 'Stream created on-chain',
+          timestamp: formatDate(project.createdAt),
+          type: 'success',
+        },
+      ],
+    }
+  } catch {
+    return null
+  }
 }

@@ -117,13 +117,21 @@ export async function POST(request: Request) {
           contractAddress,
           abiFunctionSignature,
           abiParameters,
+          callData,
           feeLevel,
           amount,
         } = params;
 
-        if (!userToken || !walletId || !contractAddress || !abiFunctionSignature) {
+        if (!userToken || !walletId || !contractAddress) {
           return NextResponse.json(
             { error: "Missing required fields for contractExecution" },
+            { status: 400 },
+          );
+        }
+
+        if (!abiFunctionSignature && !callData) {
+          return NextResponse.json(
+            { error: "Must provide abiFunctionSignature or callData" },
             { status: 400 },
           );
         }
@@ -132,10 +140,16 @@ export async function POST(request: Request) {
           idempotencyKey: crypto.randomUUID(),
           walletId,
           contractAddress,
-          abiFunctionSignature,
-          abiParameters: abiParameters ?? [],
           feeLevel: feeLevel ?? "MEDIUM",
         };
+
+        // callData and abiFunctionSignature are mutually exclusive
+        if (callData) {
+          execBody.callData = callData;
+        } else {
+          execBody.abiFunctionSignature = abiFunctionSignature;
+          execBody.abiParameters = abiParameters ?? [];
+        }
 
         if (amount !== undefined) {
           execBody.amount = String(amount);
