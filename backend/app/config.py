@@ -36,6 +36,10 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-4-turbo-preview"
     gemini_model: str = "gemini-1.5-flash"
 
+    # Blockchain Configuration
+    rpc_url: str = ""  # EVM RPC endpoint
+    private_key: str = ""  # Private key for signing transactions
+
     class Config:
         env_file = ".env"
         case_sensitive = False

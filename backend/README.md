@@ -21,6 +21,10 @@ StarCPay monitors GitHub repositories, analyzes developer commits using AI, and 
 - ✅ **Webhook Management API**: Programmatically create/update/delete webhooks
 - ✅ **MongoDB Storage**: Persistent storage with detailed analysis results
 - ✅ **Threshold Monitoring**: Auto-trigger smart contracts when threshold met
+- ✅ **On-Chain Streaming Payments**: Calls `changeRate` on StreamingTreasury (ARC Testnet)
+  - Good code: Rate calculated from payout amount / remaining time * 10^18
+  - Gaming/spam: Penalty low rate (0.0001 * 10^18)
+  - Async webhook processing for fast GitHub response
 
 ---
 
@@ -337,12 +341,14 @@ backend/
 │   │   ├── projects.py
 │   │   ├── webhooks.py
 │   │   ├── github_app.py
-│   │   └── webhook_manager.py
+│   │   ├── webhook_manager.py
+│   │   └── blockchain.py      # Blockchain test endpoints
 │   └── services/              # Business logic
 │       ├── github_service.py  # GitHub API
 │       ├── commit_analyzer.py # Analysis
 │       ├── ai_workflow.py     # AI workflow orchestration
-│       └── llm_service.py     # LLM integration (OpenAI)
+│       ├── llm_service.py     # LLM integration (OpenAI)
+│       └── blockchain_service.py # StreamingTreasury contract calls
 ├── docs/                      # Documentation
 ├── scripts/                   # Utility scripts
 ├── .env                       # Config (gitignored)
@@ -379,8 +385,7 @@ backend/
 
 ### 🚧 Ready for Implementation
 
-- [ ] Smart contract integration (Ethereum payouts)
-- [ ] Frontend dashboard (React/Next.js)
+- [x] Smart contract integration (StreamingTreasury on ARC Testnet)
 - [ ] Email notifications
 - [ ] Advanced analytics dashboard
 
@@ -433,9 +438,13 @@ Located in `app/services/ai_workflow.py` and `app/services/llm_service.py`
 - Save to `commit_analyses` collection
 - Include full reasoning and budget snapshot
 
-**5. Update Project** (`_update_project_earnings`)
+**5. Update Project & On-Chain Rate** (`_update_earnings`)
 - Increment `earned_pending` by payout amount
 - Check if threshold reached for smart contract trigger
+- Call `changeRate(streamId, newRate)` on StreamingTreasury contract:
+  - Good code: `rate = int((payout_amount / (remaining_days * 86400)) * 10^18)`
+  - Gaming/spam ($0): `rate = int(0.0001 * 10^18)` (penalty low rate)
+- Fetches `treasury_address` and `stream_id` from project DB
 
 ### Example Results
 
@@ -490,6 +499,8 @@ Required in production:
 - `MONGODB_URL`
 - `MONGODB_DB_NAME`
 - `OPENAI_API_KEY` (for AI analysis)
+- `RPC_URL` (ARC Testnet: `https://rpc.testnet.arc.network`)
+- `PRIVATE_KEY` (wallet private key for signing transactions)
 
 ---
 
@@ -524,7 +535,8 @@ MONGODB_URL=mongodb+srv://user:pass@cluster.mongodb.net/?retryWrites=true&w=majo
 - **GitHub**: GitHub App API, Webhooks
 - **Auth**: JWT for GitHub App
 - **AI**: LangChain + OpenAI GPT-4o-mini
-- **Deployment**: Railway, Cloudflare Tunnels
+- **Blockchain**: Web3.py + StreamingTreasury on ARC Testnet
+- **Deployment**: Railway, Cloudflare Tunnels, ngrok
 
 ---
 

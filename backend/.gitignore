@@ -117,3 +117,12 @@ calculator_project.json
 # Scripts output
 *.output
 nul
+
+# Test collections & guides
+*_Collection*.json
+test_apis.bat
+test_data/
+test_new_endpoints.md
+API_TEST_COLLECTION.md
+HOPPSCOTCH_IMPORT_GUIDE.md
+WALLET_FILTERING_GUIDE.md

@@ -25,10 +25,10 @@ class GitHubService:
 
     def _generate_jwt(self) -> str:
         """Generate JWT for GitHub App authentication"""
-        now = int(time.time())
+        now = int(time.time()) - 60  # Subtract 60s to handle clock skew
         payload = {
             "iat": now,
-            "exp": now + 600,  # 10 minutes (max allowed)
+            "exp": now + 300,  # 5 minutes (safe margin under 10 min max)
             "iss": self.app_id
         }
         return jwt.encode(payload, self.private_key, algorithm="RS256")

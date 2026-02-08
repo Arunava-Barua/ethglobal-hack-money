@@ -5,10 +5,11 @@ from datetime import datetime
 
 class ProjectCreate(BaseModel):
     """Schema for creating a new project"""
-    # Freelancer Info
+    # User Info
     freelance_alias: str
     github_username: str
-    wallet_address: str
+    employee_wallet_address: str  # Freelancer/employee wallet
+    employer_wallet_address: str  # Contractor/employer wallet
 
     # Project Details
     repo_url: str
@@ -29,18 +30,20 @@ class ProjectCreate(BaseModel):
 
     # Technical
     installation_id: str  # GitHub App installation ID
-    stream_id: Optional[str] = None  # For later use
+    stream_id: Optional[str] = None  # Superfluid stream ID
     smart_contract_hash: Optional[str] = None
+    treasury_address: Optional[str] = None  # StreamingTreasury contract address
 
 
 class Project(BaseModel):
     """Project model stored in MongoDB"""
     project_id: str
 
-    # Freelancer Info
+    # User Info
     freelance_alias: str
     github_username: str
-    wallet_address: str
+    employee_wallet_address: Optional[str] = None  # Freelancer/employee wallet (optional for old projects)
+    employer_wallet_address: Optional[str] = None  # Contractor/employer wallet
 
     # Repository
     repo_url: str
@@ -67,8 +70,9 @@ class Project(BaseModel):
 
     # Technical
     installation_id: str
-    stream_id: Optional[str] = None
+    stream_id: Optional[str] = None  # Superfluid stream ID
     smart_contract_hash: Optional[str] = None
+    treasury_address: Optional[str] = None  # StreamingTreasury contract address
 
     # Status
     status: str = "active"  # active, paused, completed
@@ -81,7 +85,8 @@ class Project(BaseModel):
                 "project_id": "proj_123abc",
                 "freelance_alias": "John Dev",
                 "github_username": "johndev",
-                "wallet_address": "0x1234...",
+                "employee_wallet_address": "0x1234...",
+                "employer_wallet_address": "0x5678...",
                 "repo_url": "https://github.com/owner/repo",
                 "repo_owner": "owner",
                 "repo_name": "repo",

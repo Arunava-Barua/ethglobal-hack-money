@@ -9,6 +9,7 @@ from typing import Dict, List
 from datetime import datetime
 from app.database import get_database
 from app.services.llm_service import llm_service
+from app.services.blockchain_service import blockchain_service
 
 
 class AIWorkflowService:
@@ -255,7 +256,7 @@ class AIWorkflowService:
         payout_amount: float
     ) -> Dict:
         """
-        Step 5: Update project earnings and check threshold
+        Step 5: Update project earnings, check threshold, and call changeRate on-chain
         """
         db = get_database()
 
@@ -282,15 +283,60 @@ class AIWorkflowService:
         print(f"  - Threshold: ${threshold}")
         print(f"  - Trigger payout: {should_trigger_payout}")
 
-        if should_trigger_payout:
-            print(f"  [PAYOUT] Threshold met! Ready to trigger smart contract")
-            # TODO: Trigger smart contract here
+        # Call changeRate on StreamingTreasury contract
+        blockchain_result = None
+        treasury_address = project.get("treasury_address")
+        stream_id = project.get("stream_id")
+
+        if treasury_address and stream_id is not None:
+            try:
+                if payout_amount > 0:
+                    # Good code: calculate rate based on payout and remaining time
+                    end_date = project.get("end_date")
+                    now = datetime.utcnow()
+                    if isinstance(end_date, str):
+                        end_date = datetime.fromisoformat(end_date.replace("Z", "+00:00")).replace(tzinfo=None)
+                    remaining_days = (end_date - now).total_seconds() / 86400
+
+                    new_rate = blockchain_service.calculate_rate(payout_amount, remaining_days)
+                    print(f"  [BLOCKCHAIN] Good code - calculated rate from ${payout_amount}")
+                    print(f"  [BLOCKCHAIN] Remaining days: {remaining_days:.2f}")
+                else:
+                    # Gaming/zero payout: punish with very low rate
+                    new_rate = int(0.0001 * (10 ** 18))  # 100000000000000
+                    print(f"  [BLOCKCHAIN] Gaming detected - setting penalty low rate")
+
+                print(f"  [BLOCKCHAIN] Calling changeRate...")
+                print(f"  [BLOCKCHAIN] Treasury: {treasury_address}")
+                print(f"  [BLOCKCHAIN] Stream ID: {stream_id}")
+                print(f"  [BLOCKCHAIN] New rate: {new_rate}")
+
+                blockchain_result = await blockchain_service.change_rate(
+                    treasury_address=treasury_address,
+                    stream_id=int(stream_id),
+                    new_rate=new_rate,
+                )
+
+                if blockchain_result.get("success"):
+                    print(f"  [BLOCKCHAIN] changeRate SUCCESS - tx: {blockchain_result['tx_hash']}")
+                else:
+                    print(f"  [BLOCKCHAIN] changeRate FAILED - {blockchain_result.get('error')}")
+
+            except Exception as e:
+                print(f"  [BLOCKCHAIN ERROR] {e}")
+                blockchain_result = {"success": False, "error": str(e)}
+        else:
+            if not treasury_address:
+                print(f"  [BLOCKCHAIN] Skipped - no treasury_address on project")
+            if not stream_id:
+                print(f"  [BLOCKCHAIN] Skipped - no stream_id on project")
 
         return {
             "earned_pending": new_pending,
             "payout_threshold": threshold,
             "should_trigger_payout": should_trigger_payout,
-            "wallet_address": project.get("wallet_address")
+            "wallet_address": project.get("employee_wallet_address"),
+            "blockchain_result": blockchain_result,
         }
 
 

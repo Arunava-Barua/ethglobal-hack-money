@@ -58,7 +58,8 @@ async def create_project(project_data: ProjectCreate):
             project_id=project_id,
             freelance_alias=project_data.freelance_alias,
             github_username=project_data.github_username,
-            wallet_address=project_data.wallet_address,
+            employee_wallet_address=project_data.employee_wallet_address,
+            employer_wallet_address=project_data.employer_wallet_address,
             repo_url=project_data.repo_url,
             repo_owner=owner,
             repo_name=repo_name,
@@ -72,7 +73,8 @@ async def create_project(project_data: ProjectCreate):
             total_tenure_days=project_data.total_tenure_days,
             installation_id=project_data.installation_id,
             stream_id=project_data.stream_id,
-            smart_contract_hash=project_data.smart_contract_hash
+            smart_contract_hash=project_data.smart_contract_hash,
+            treasury_address=project_data.treasury_address
         )
 
         # Save to database
@@ -122,8 +124,22 @@ async def get_project(project_id: str):
 
 
 @router.get("/", response_model=List[Project])
-async def list_projects(status: str = None, freelancer: str = None):
-    """List all projects with optional filters"""
+async def list_projects(
+    status: str = None,
+    freelancer: str = None,
+    user_type: str = None,
+    wallet_address: str = None
+):
+    """
+    List all projects with optional filters
+
+    Wallet filtering logic:
+    - user_type=freelancer: filters by employee_wallet_address (shows projects where you're the employee)
+    - user_type=contractor: filters by employer_wallet_address (shows projects where you're the employer)
+    - user_type not specified: checks both wallet fields (shows all projects you're involved in)
+
+    Note: user_type is a query parameter only, not stored in the project
+    """
     db = get_database()
 
     query = {}
@@ -131,6 +147,20 @@ async def list_projects(status: str = None, freelancer: str = None):
         query["status"] = status
     if freelancer:
         query["github_username"] = freelancer
+
+    # Handle wallet_address filtering based on user_type
+    if wallet_address and user_type:
+        # User type specified - filter by appropriate wallet field
+        if user_type == "freelancer":
+            query["employee_wallet_address"] = wallet_address
+        elif user_type == "contractor":
+            query["employer_wallet_address"] = wallet_address
+    elif wallet_address:
+        # No user type - search both wallet fields
+        query["$or"] = [
+            {"employee_wallet_address": wallet_address},
+            {"employer_wallet_address": wallet_address}
+        ]
 
     projects = await db["projects"].find(query).to_list(length=100)
 
@@ -157,3 +187,65 @@ async def update_project_status(project_id: str, status: str):
         raise HTTPException(status_code=404, detail="Project not found")
 
     return {"success": True, "message": f"Project status updated to {status}"}
+
+
+@router.get("/{project_id}/analyses")
+async def get_project_analyses(project_id: str, limit: int = 50):
+    """
+    Get all commit analyses for a project
+
+    Returns AI analysis results including payout amounts, reasoning, and quality scores
+    """
+    db = get_database()
+
+    # Verify project exists
+    project = await db["projects"].find_one({"project_id": project_id})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    # Fetch analyses sorted by creation date (newest first)
+    analyses = await db["commit_analyses"].find(
+        {"project_id": project_id}
+    ).sort("created_at", -1).limit(limit).to_list(length=limit)
+
+    # Remove MongoDB _id field
+    for analysis in analyses:
+        analysis.pop("_id", None)
+
+    return {
+        "success": True,
+        "project_id": project_id,
+        "total_analyses": len(analyses),
+        "analyses": analyses
+    }
+
+
+@router.get("/{project_id}/push-events")
+async def get_project_push_events(project_id: str, limit: int = 50):
+    """
+    Get all push events for a project
+
+    Returns raw webhook data including commit details and analysis status
+    """
+    db = get_database()
+
+    # Verify project exists
+    project = await db["projects"].find_one({"project_id": project_id})
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    # Fetch push events sorted by creation date (newest first)
+    push_events = await db["push_events"].find(
+        {"project_id": project_id}
+    ).sort("created_at", -1).limit(limit).to_list(length=limit)
+
+    # Remove MongoDB _id field
+    for event in push_events:
+        event.pop("_id", None)
+
+    return {
+        "success": True,
+        "project_id": project_id,
+        "total_events": len(push_events),
+        "push_events": push_events
+    }

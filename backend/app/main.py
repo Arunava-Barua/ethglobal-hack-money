@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
 from app.database import connect_to_mongo, close_mongo_connection
-from app.routes import projects, webhooks, github_app, webhook_manager
+from app.routes import projects, webhooks, github_app, webhook_manager, blockchain
 from app.config import get_settings
 
 settings = get_settings()
@@ -41,6 +41,7 @@ app.include_router(projects.router)
 app.include_router(webhooks.router)
 app.include_router(github_app.router)
 app.include_router(webhook_manager.router)  # Re-enabled - MongoDB is working now
+app.include_router(blockchain.router)
 
 
 @app.get("/")

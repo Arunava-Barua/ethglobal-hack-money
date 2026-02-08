@@ -232,9 +232,10 @@ async def handle_github_webhook(
                 "status": "pending_manual_review"
             }
 
-        # Agentic mode - trigger AI workflow
-        print(f"[AGENTIC] Triggering AI analysis workflow...")
+        # Agentic mode - trigger AI workflow in background
+        print(f"[AGENTIC] Triggering AI analysis workflow in background...")
 
+        import asyncio
         from app.services.ai_workflow import ai_workflow_service
 
         project_context = {
@@ -244,24 +245,24 @@ async def handle_github_webhook(
             "freelance_alias": project.get("freelance_alias", "")
         }
 
-        workflow_result = await ai_workflow_service.run_analysis_workflow(
-            push_id=push_id,
-            project_id=project["project_id"],
-            commits_details=commits_details,
-            project_context=project_context
+        # Run workflow in background so GitHub gets a fast 200 response
+        asyncio.create_task(
+            ai_workflow_service.run_analysis_workflow(
+                push_id=push_id,
+                project_id=project["project_id"],
+                commits_details=commits_details,
+                project_context=project_context
+            )
         )
-
-        print(f"[WORKFLOW] Workflow completed: {workflow_result.get('success', False)}")
 
         return {
             "success": True,
-            "message": "Push event processed and analyzed",
+            "message": "Push event received, analysis running in background",
             "push_id": push_id,
             "project_id": project["project_id"],
             "tracked_commits": len(tracked_commits),
             "evaluation_mode": "agentic",
-            "workflow_result": workflow_result,
-            "status": workflow_result.get("analysis", {}).get("analysis_status", "completed")
+            "status": "processing"
         }
 
     except Exception as e:
