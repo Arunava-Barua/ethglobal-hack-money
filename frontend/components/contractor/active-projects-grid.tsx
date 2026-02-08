@@ -91,13 +91,10 @@ export function ActiveProjectsGrid({ refreshKey }: ActiveProjectsGridProps) {
       return { baseValue, ratePerSecond: state.paused ? 0 : ratePerSecondHuman }
     }
 
-    // Fallback: use stored ratePerSecond + time since creation
+    // Fallback before first on-chain poll (shows 0 briefly, then resyncs)
     const rateWei = BigInt(project.ratePerSecond)
-    const elapsed = BigInt(Math.floor(Date.now() / 1000) - project.createdAt)
-    const totalWei = rateWei * elapsed
-    const baseValue = parseFloat(formatEther(totalWei))
     const ratePerSecondHuman = parseFloat(formatEther(rateWei))
-    return { baseValue, ratePerSecond: ratePerSecondHuman }
+    return { baseValue: 0, ratePerSecond: ratePerSecondHuman }
   }
 
   function getTaskCounts(project: StoredProject) {

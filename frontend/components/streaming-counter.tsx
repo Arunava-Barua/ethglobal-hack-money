@@ -21,6 +21,11 @@ export function StreamingCounter({
 }: StreamingCounterProps) {
   const [value, setValue] = useState(baseValue)
 
+  // Resync with on-chain data whenever baseValue changes (poll, pause/resume)
+  useEffect(() => {
+    setValue(baseValue)
+  }, [baseValue])
+
   useEffect(() => {
     const interval = setInterval(() => {
       setValue((prev) => prev + ratePerSecond / 10)

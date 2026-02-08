@@ -298,9 +298,6 @@ export function getProjectDetail(id: string): ProjectDetail | null {
       (Number(BigInt(project.ratePerSecond)) / 1e18).toFixed(10),
     )
 
-    const elapsedSeconds = Math.max(0, Math.floor(Date.now() / 1000) - project.createdAt)
-    const streamed = ratePerSecondHuman * elapsedSeconds
-
     return {
       id: project.id,
       name: project.name,
@@ -314,7 +311,7 @@ export function getProjectDetail(id: string): ProjectDetail | null {
       mode: project.evaluationMode,
       budget: project.totalBudgetInUSDC,
       currency: 'USDC',
-      streamed,
+      streamed: 0,
       streamRate: ratePerSecondHuman,
       progress: 0,
       tasksCompleted: 0,

@@ -38,29 +38,6 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
-      {/* Notifications */}
-      <Card className="bg-card border border-border shadow-sm">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base font-semibold">Notifications</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {[
-            { label: 'Contract updates', description: 'When a contract status changes', defaultChecked: true },
-            { label: 'Payment notifications', description: 'When a stream starts, pauses, or completes', defaultChecked: true },
-            { label: 'Milestone completions', description: 'When a freelancer completes a milestone', defaultChecked: true },
-            { label: 'Weekly summary', description: 'Weekly digest of all activity', defaultChecked: false },
-          ].map((item) => (
-            <div key={item.label} className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-foreground">{item.label}</p>
-                <p className="text-xs text-muted-foreground">{item.description}</p>
-              </div>
-              <Switch defaultChecked={item.defaultChecked} />
-            </div>
-          ))}
-        </CardContent>
-      </Card>
-
       {/* Wallet */}
       <Card className="bg-card border border-border shadow-sm">
         <CardHeader className="pb-3">
