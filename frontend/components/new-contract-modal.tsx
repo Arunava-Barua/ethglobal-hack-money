@@ -38,9 +38,9 @@ import { STREAMING_TREASURY_ABI } from '@/contract/contractDetails'
 import {
   convertRateToPerSecond,
   queryNextStreamId,
-  saveProject,
-  type StoredProject,
 } from '@/lib/streaming'
+import { useGitHub } from '@/components/github-provider'
+import { createProject } from '@/lib/api'
 
 interface NewContractModalProps {
   open: boolean
@@ -58,6 +58,7 @@ export function NewContractModal({
   onContractCreated,
 }: NewContractModalProps) {
   const { walletId, userToken, executeChallenge } = useWallet()
+  const { installationId } = useGitHub()
 
   const [freelancerAlias, setFreelancerAlias] = useState('')
   const [githubUsername, setGithubUsername] = useState('')
@@ -254,42 +255,28 @@ export function NewContractModal({
           ? Math.round((endTimestamp - startTimestamp) / 86400)
           : 0
 
-      // 7. Derive project name & initials
-      const spec = taskSpecification as { projectTitle?: string; milestones?: { title: string; tasks: string[] }[] } | null
-      const projectName = spec?.projectTitle || `Contract with ${freelancerAlias}`
-      const initials = freelancerAlias
-        .split(/[_\s-]/)
-        .map((w) => w[0]?.toUpperCase() ?? '')
-        .join('')
-        .slice(0, 2)
-
-      // 8. Save to localStorage
-      const project: StoredProject = {
-        id: `stream-${confirmedStreamId}`,
-        name: projectName,
-        freelancerAlias,
-        freelancerInitials: initials,
-        freelancerWalletAddress: walletAddress,
-        contractorAddress: contractorAddress ?? '',
-        treasuryAddress,
-        streamId: confirmedStreamId,
-        ratePerSecond: ratePerSecond.toString(),
-        status: 'active',
-        totalBudgetInUSDC: parseFloat(totalBudget) || 0,
-        evaluationMode,
-        githubRepo,
-        googleMeetLink,
-        taskSpecification: taskSpecification ?? {},
-        streamingUnit,
-        streamingRate: rate,
-        startDate: startTimestamp,
-        endDate: endTimestamp,
-        totalTenureInDays: tenureDays,
-        createdAt: Math.floor(Date.now() / 1000),
+      // 7. POST project to backend
+      setSubmitStatus('Saving project to backend...')
+      const backendPayload = {
+        freelance_alias: freelancerAlias,
+        github_username: githubUsername,
+        employee_wallet_address: walletAddress,
+        employer_wallet_address: contractorAddress ?? '',
+        repo_url: githubRepo,
+        milestone_specification: taskSpecification ?? {},
+        gmeet_link: googleMeetLink || undefined,
+        total_budget: parseFloat(totalBudget) || 0,
+        evaluation_mode: evaluationMode,
+        start_date: startDate ? new Date(startDate).toISOString() : new Date().toISOString(),
+        end_date: endDate ? new Date(endDate).toISOString() : new Date().toISOString(),
+        total_tenure_days: tenureDays,
+        installation_id: installationId ?? '',
+        stream_id: confirmedStreamId.toString(),
+        treasury_address: treasuryAddress,
       }
 
-      saveProject(project)
-      console.log('[Stream] Project saved:', project)
+      const result = await createProject(backendPayload)
+      console.log('[Stream] Project created in backend:', result)
 
       setSubmitStatus('Stream created successfully!')
       onContractCreated?.()

@@ -17,8 +17,16 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { StatusBadge } from '@/components/status-badge'
 import { StreamingCounter } from '@/components/streaming-counter'
 import { StreamedAmountChart } from '@/components/streamed-amount-chart'
-import { getProjectDetail } from '@/lib/mock-project'
 import { queryStream, sendStreamAction, type StreamState } from '@/lib/streaming'
+import {
+  getProject,
+  updateWebhook,
+  getProjectPushEvents,
+  getProjectAnalyses,
+  type BackendProject,
+  type PushEvent,
+  type CommitAnalysis,
+} from '@/lib/api'
 import { useWallet } from '@/components/wallet-provider'
 import { formatEther } from 'viem'
 
@@ -27,16 +35,61 @@ const POLL_INTERVAL = 15_000
 export default function ContractorProjectDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
   const { walletId, userToken, executeChallenge } = useWallet()
-  const project = getProjectDetail(id)
+
+  const [project, setProject] = useState<BackendProject | null>(null)
+  const [isLoadingProject, setIsLoadingProject] = useState(true)
   const [streamState, setStreamState] = useState<StreamState | null>(null)
   const [actionInProgress, setActionInProgress] = useState<string | null>(null)
 
+  // Webhook state
+  const [isRegisteringWebhook, setIsRegisteringWebhook] = useState(false)
+  const [webhookMsg, setWebhookMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+
+  // Approvals (push-events) and Agent Comments (analyses)
+  const [pushEvents, setPushEvents] = useState<PushEvent[]>([])
+  const [analyses, setAnalyses] = useState<CommitAnalysis[]>([])
+  const [isLoadingEvents, setIsLoadingEvents] = useState(true)
+
+  // Fetch project from backend
+  useEffect(() => {
+    async function load() {
+      try {
+        const data = await getProject(id)
+        setProject(data)
+      } catch (err) {
+        console.error('Failed to fetch project:', err)
+      } finally {
+        setIsLoadingProject(false)
+      }
+    }
+    load()
+  }, [id])
+
+  // Fetch push-events and analyses
+  useEffect(() => {
+    async function loadEvents() {
+      try {
+        const [eventsRes, analysesRes] = await Promise.all([
+          getProjectPushEvents(id),
+          getProjectAnalyses(id),
+        ])
+        setPushEvents(eventsRes.push_events)
+        setAnalyses(analysesRes.analyses)
+      } catch (err) {
+        console.error('Failed to fetch events/analyses:', err)
+      } finally {
+        setIsLoadingEvents(false)
+      }
+    }
+    loadEvents()
+  }, [id])
+
   // Poll on-chain stream state
   const pollStream = useCallback(async () => {
-    if (!project?.treasuryAddress || project.streamId == null) return
-    const state = await queryStream(project.treasuryAddress, project.streamId)
+    if (!project?.treasury_address || project.stream_id == null) return
+    const state = await queryStream(project.treasury_address, parseInt(project.stream_id, 10))
     if (state) setStreamState(state)
-  }, [project?.treasuryAddress, project?.streamId])
+  }, [project?.treasury_address, project?.stream_id])
 
   useEffect(() => {
     pollStream()
@@ -44,26 +97,26 @@ export default function ContractorProjectDetailPage({ params }: { params: Promis
     return () => clearInterval(interval)
   }, [pollStream])
 
+  // Stream actions (pause/resume/stop)
   async function handleStreamAction(action: 'pauseStream' | 'resumeStream' | 'stopStream') {
-    if (!walletId || !userToken || !project?.treasuryAddress || project.streamId == null) return
+    if (!walletId || !userToken || !project?.treasury_address || project.stream_id == null) return
 
     setActionInProgress(action)
     try {
       const challengeId = await sendStreamAction(
         action,
-        project.streamId,
-        project.treasuryAddress,
+        parseInt(project.stream_id, 10),
+        project.treasury_address,
         walletId,
         userToken,
       )
       await executeChallenge(challengeId)
 
-      // Poll for updated state
       let retries = 0
       const maxRetries = 10
       while (retries < maxRetries) {
         await new Promise((r) => setTimeout(r, 5000))
-        const state = await queryStream(project.treasuryAddress, project.streamId)
+        const state = await queryStream(project.treasury_address, parseInt(project.stream_id, 10))
         if (state) {
           const expectedPaused = action !== 'resumeStream'
           if (state.paused === expectedPaused) {
@@ -80,6 +133,34 @@ export default function ContractorProjectDetailPage({ params }: { params: Promis
     }
   }
 
+  // Register Webhook
+  async function handleRegisterWebhook() {
+    if (!project) return
+    setIsRegisteringWebhook(true)
+    setWebhookMsg(null)
+    try {
+      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL ?? ''
+      const result = await updateWebhook({
+        project_id: project.project_id,
+        new_webhook_url: `${backendUrl}/api/webhooks/github`,
+      })
+      setWebhookMsg({ type: 'success', text: result.message || 'Webhook registered successfully' })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to register webhook'
+      setWebhookMsg({ type: 'error', text: msg })
+    } finally {
+      setIsRegisteringWebhook(false)
+    }
+  }
+
+  if (isLoadingProject) {
+    return (
+      <div className="p-6 lg:p-8 max-w-[1400px] mx-auto flex items-center justify-center py-24 gap-2 text-muted-foreground">
+        <Loader2 className="w-5 h-5 animate-spin" /> Loading project...
+      </div>
+    )
+  }
+
   if (!project) {
     return (
       <div className="p-6 lg:p-8 max-w-[1400px] mx-auto">
@@ -93,17 +174,40 @@ export default function ContractorProjectDetailPage({ params }: { params: Promis
     )
   }
 
-  // Derive live status from on-chain state
-  const liveStatus: 'active' | 'paused' | 'pending' | 'completed' = streamState
+  // Derived values
+  const streamId = project.stream_id != null ? parseInt(project.stream_id, 10) : null
+  const spec = project.milestone_specification as {
+    projectTitle?: string
+    description?: string
+    milestones?: { title: string; tasks: string[] }[]
+  } | null
+  const projectName = spec?.projectTitle ?? `Contract with ${project.freelance_alias}`
+  const description = spec?.description ?? ''
+  const milestones = spec?.milestones ?? []
+  const initials = project.freelance_alias
+    .split(/[_\s-]/)
+    .map((w) => w[0]?.toUpperCase() ?? '')
+    .join('')
+    .slice(0, 2)
+
+  const formatDate = (d: string) => {
+    try {
+      return new Date(d).toLocaleDateString()
+    } catch {
+      return d
+    }
+  }
+
+  // Live status from on-chain state
+  const liveStatus: 'active' | 'paused' | 'completed' = streamState
     ? streamState.paused
       ? BigInt(streamState.ratePerSecond) === 0n ? 'completed' : 'paused'
       : 'active'
-    : project.status
+    : (project.status as 'active' | 'paused' | 'completed')
 
-  // Compute live values from on-chain state when available
   const liveRate = streamState
     ? parseFloat(formatEther(BigInt(streamState.ratePerSecond)))
-    : project.streamRate
+    : 0
 
   const liveStreamed = (() => {
     if (streamState) {
@@ -115,11 +219,11 @@ export default function ContractorProjectDetailPage({ params }: { params: Promis
       const totalWei = accruedWei + rateWei * elapsed
       return parseFloat(formatEther(totalWei))
     }
-    return project.streamed
+    return 0
   })()
 
-  const completedMilestones = project.milestones.filter((m) => m.status === 'completed').length
-  const budgetUsedPct = Math.round((liveStreamed / project.budget) * 100)
+  const budgetUsedPct = project.total_budget > 0 ? Math.round((liveStreamed / project.total_budget) * 100) : 0
+  const startTimestamp = Math.floor(new Date(project.start_date).getTime() / 1000)
 
   return (
     <div className="p-6 lg:p-8 max-w-[1400px] mx-auto space-y-6">
@@ -130,21 +234,33 @@ export default function ContractorProjectDetailPage({ params }: { params: Promis
         </Button>
       </Link>
 
+      {/* Webhook message */}
+      {webhookMsg && (
+        <div className={`flex items-center gap-2 p-3 rounded-lg text-sm ${
+          webhookMsg.type === 'success'
+            ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-600'
+            : 'bg-destructive/10 border border-destructive/20 text-destructive'
+        }`}>
+          {webhookMsg.type === 'success' ? <CheckCircle className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
+          {webhookMsg.text}
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-start justify-between">
         <div className="flex items-center gap-4">
           <Avatar className="w-12 h-12">
             <AvatarFallback className="bg-primary/10 text-primary font-semibold">
-              {project.freelancerInitials}
+              {initials}
             </AvatarFallback>
           </Avatar>
           <div>
-            <h1 className="text-2xl font-bold text-foreground tracking-tight">{project.name}</h1>
+            <h1 className="text-2xl font-bold text-foreground tracking-tight">{projectName}</h1>
             <div className="flex items-center gap-3 mt-1">
-              <span className="text-sm text-muted-foreground font-mono">@{project.freelancerAlias}</span>
+              <span className="text-sm text-muted-foreground font-mono">@{project.freelance_alias}</span>
               <StatusBadge status={liveStatus === 'active' ? 'live' : liveStatus} />
               <span className="text-xs px-2 py-0.5 rounded bg-muted text-muted-foreground font-medium capitalize">
-                {project.mode}
+                {project.evaluation_mode}
               </span>
             </div>
           </div>
@@ -154,14 +270,15 @@ export default function ContractorProjectDetailPage({ params }: { params: Promis
             variant="outline"
             size="sm"
             className="gap-1.5"
-            onClick={() => {
-              console.log('Register Webhook:', {
-                projectId: project.id,
-                githubRepo: project.githubUrl,
-              })
-            }}
+            disabled={isRegisteringWebhook}
+            onClick={handleRegisterWebhook}
           >
-            <Webhook className="w-3.5 h-3.5" /> Register Webhook
+            {isRegisteringWebhook ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Webhook className="w-3.5 h-3.5" />
+            )}
+            Register Webhook
           </Button>
           {liveStatus === 'active' && (
             <>
@@ -235,31 +352,31 @@ export default function ContractorProjectDetailPage({ params }: { params: Promis
         <Card className="bg-card border border-border shadow-sm">
           <CardContent className="pt-4 pb-4">
             <p className="text-xs text-muted-foreground">Budget</p>
-            <p className="text-lg font-bold">{project.budget} {project.currency}</p>
+            <p className="text-lg font-bold">{project.total_budget} USDC</p>
           </CardContent>
         </Card>
         <Card className="bg-card border border-border shadow-sm">
           <CardContent className="pt-4 pb-4">
             <p className="text-xs text-muted-foreground">Milestones</p>
-            <p className="text-lg font-bold">{completedMilestones}/{project.milestones.length}</p>
+            <p className="text-lg font-bold">{milestones.length}</p>
           </CardContent>
         </Card>
         <Card className="bg-card border border-border shadow-sm">
           <CardContent className="pt-4 pb-4">
-            <p className="text-xs text-muted-foreground">Tasks Done</p>
-            <p className="text-lg font-bold">{project.tasksCompleted}/{project.totalTasks}</p>
+            <p className="text-xs text-muted-foreground">Earned (Pending)</p>
+            <p className="text-lg font-bold">{project.earned_pending.toFixed(2)} USDC</p>
           </CardContent>
         </Card>
         <Card className="bg-card border border-border shadow-sm">
           <CardContent className="pt-4 pb-4">
             <p className="text-xs text-muted-foreground">Stream Rate</p>
-            <p className="text-lg font-bold font-mono">{liveRate.toFixed(10)} <span className="text-xs font-normal text-muted-foreground">{project.currency}/s</span></p>
+            <p className="text-lg font-bold font-mono">{liveRate.toFixed(10)} <span className="text-xs font-normal text-muted-foreground">USDC/s</span></p>
           </CardContent>
         </Card>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left Column — 2/3 */}
+        {/* Left Column */}
         <div className="lg:col-span-2 space-y-6">
           {/* Project Details */}
           <Card className="bg-card border border-border shadow-sm">
@@ -267,22 +384,15 @@ export default function ContractorProjectDetailPage({ params }: { params: Promis
               <CardTitle className="text-base font-semibold">Project Details</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <p className="text-sm text-muted-foreground">{project.description}</p>
+              {description && <p className="text-sm text-muted-foreground">{description}</p>}
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div>
                   <span className="text-muted-foreground">Duration</span>
-                  <p className="font-semibold text-foreground">{project.startDate} — {project.endDate}</p>
+                  <p className="font-semibold text-foreground">{formatDate(project.start_date)} — {formatDate(project.end_date)}</p>
                 </div>
                 <div>
                   <span className="text-muted-foreground">Freelancer Wallet</span>
-                  <p className="font-mono text-xs text-foreground truncate">{project.freelancerWallet}</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground">Overall Progress</span>
-                  <div className="flex items-center gap-2 mt-1">
-                    <Progress value={project.progress} className="h-2 flex-1" />
-                    <span className="font-semibold text-foreground text-xs">{project.progress}%</span>
-                  </div>
+                  <p className="font-mono text-xs text-foreground truncate">{project.employee_wallet_address}</p>
                 </div>
                 <div>
                   <span className="text-muted-foreground">Budget Used</span>
@@ -291,24 +401,30 @@ export default function ContractorProjectDetailPage({ params }: { params: Promis
                     <span className="font-semibold text-foreground text-xs">{budgetUsedPct}%</span>
                   </div>
                 </div>
+                <div>
+                  <span className="text-muted-foreground">Total Paid</span>
+                  <p className="font-semibold text-foreground">{project.total_paid.toFixed(2)} USDC</p>
+                </div>
               </div>
-              {/* Documents */}
               <Separator />
               <div className="flex flex-wrap gap-3">
-                <Button variant="outline" size="sm" className="gap-2">
-                  <FileText className="w-4 h-4" /> {project.pdfName}
+                <Button variant="outline" size="sm" className="gap-2" asChild>
+                  <a href={project.repo_url} target="_blank" rel="noopener noreferrer">
+                    <Github className="w-4 h-4" /> GitHub Repo
+                  </a>
                 </Button>
-                <Button variant="outline" size="sm" className="gap-2">
-                  <Github className="w-4 h-4" /> GitHub Repo
-                </Button>
-                <Button variant="outline" size="sm" className="gap-2">
-                  <Video className="w-4 h-4" /> Google Meet
-                </Button>
+                {project.gmeet_link && (
+                  <Button variant="outline" size="sm" className="gap-2" asChild>
+                    <a href={project.gmeet_link} target="_blank" rel="noopener noreferrer">
+                      <Video className="w-4 h-4" /> Google Meet
+                    </a>
+                  </Button>
+                )}
               </div>
             </CardContent>
           </Card>
 
-          {/* Tabs: Milestones / Agentic Approvals / Agentic Comments */}
+          {/* Tabs: Milestones / Approvals / Agent Comments */}
           <Tabs defaultValue="milestones">
             <TabsList className="w-full justify-start">
               <TabsTrigger value="milestones">Milestones</TabsTrigger>
@@ -325,142 +441,173 @@ export default function ContractorProjectDetailPage({ params }: { params: Promis
               <Card className="bg-card border border-border shadow-sm">
                 <CardContent className="pt-6">
                   <div className="space-y-3">
-                    {project.milestones.map((ms) => (
+                    {milestones.map((ms, i) => (
                       <div
-                        key={ms.id}
+                        key={i}
                         className="flex items-center gap-3 p-3 rounded-lg border border-border bg-background"
                       >
-                        {ms.status === 'completed' ? (
-                          <CheckCircle className="w-5 h-5 text-emerald-500 flex-shrink-0" />
-                        ) : ms.status === 'in-progress' ? (
-                          <Clock className="w-5 h-5 text-accent flex-shrink-0 animate-pulse-stream" />
-                        ) : (
-                          <div className="w-5 h-5 rounded-full border-2 border-muted-foreground/30 flex-shrink-0" />
-                        )}
+                        <div className="w-5 h-5 rounded-full border-2 border-muted-foreground/30 flex-shrink-0" />
                         <div className="flex-1 min-w-0">
-                          <p className={`text-sm font-medium ${ms.status === 'completed' ? 'text-muted-foreground line-through' : 'text-foreground'}`}>
-                            {ms.title}
+                          <p className="text-sm font-medium text-foreground">{ms.title}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {ms.tasks?.length ?? 0} tasks
                           </p>
-                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                            <span>Due: {ms.dueDate}</span>
-                            {ms.completedDate && <span>· Done: {ms.completedDate}</span>}
-                            {ms.approvedBy && (
-                              <Badge variant="outline" className="text-[10px] gap-1">
-                                <Bot className="w-3 h-3" /> {ms.approvedBy === 'agent' ? 'Agent verified' : 'Manual'}
-                              </Badge>
-                            )}
-                          </div>
                         </div>
-                        <Badge
-                          variant="outline"
-                          className={`text-[10px] ${
-                            ms.status === 'completed'
-                              ? 'text-emerald-600 border-emerald-200'
-                              : ms.status === 'in-progress'
-                              ? 'text-accent border-accent/30'
-                              : 'text-muted-foreground'
-                          }`}
-                        >
-                          {ms.status}
+                        <Badge variant="outline" className="text-[10px] text-muted-foreground">
+                          pending
                         </Badge>
                       </div>
                     ))}
+                    {milestones.length === 0 && (
+                      <p className="text-sm text-muted-foreground text-center py-4">No milestones defined.</p>
+                    )}
                   </div>
                 </CardContent>
               </Card>
             </TabsContent>
 
-            {/* Agentic Approvals */}
+            {/* Approvals (from push-events) */}
             <TabsContent value="approvals">
               <Card className="bg-card border border-border shadow-sm">
                 <CardContent className="pt-6">
-                  <div className="space-y-4">
-                    {project.agenticApprovals.map((approval) => (
-                      <div
-                        key={approval.id}
-                        className="p-4 rounded-lg border border-border bg-background space-y-2"
-                      >
-                        <div className="flex items-start justify-between">
-                          <div className="flex items-center gap-2">
-                            {approval.verdict === 'approved' ? (
-                              <ShieldCheck className="w-5 h-5 text-emerald-500" />
-                            ) : approval.verdict === 'rejected' ? (
-                              <ShieldAlert className="w-5 h-5 text-red-500" />
-                            ) : (
-                              <ShieldQuestion className="w-5 h-5 text-amber-500" />
-                            )}
-                            <span className="text-sm font-medium text-foreground">{approval.milestoneTitle}</span>
+                  {isLoadingEvents ? (
+                    <div className="flex items-center justify-center py-8 gap-2 text-sm text-muted-foreground">
+                      <Loader2 className="w-4 h-4 animate-spin" /> Loading push events...
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {pushEvents.map((evt) => (
+                        <div
+                          key={evt.push_id}
+                          className="p-4 rounded-lg border border-border bg-background space-y-2"
+                        >
+                          <div className="flex items-start justify-between">
+                            <div className="flex items-center gap-2">
+                              {evt.status === 'analyzed' || evt.status === 'processed' ? (
+                                <ShieldCheck className="w-5 h-5 text-emerald-500" />
+                              ) : evt.status === 'pending_analysis' ? (
+                                <Clock className="w-5 h-5 text-amber-500" />
+                              ) : (
+                                <ShieldQuestion className="w-5 h-5 text-blue-500" />
+                              )}
+                              <span className="text-sm font-medium text-foreground">
+                                Push by @{evt.pusher}
+                              </span>
+                            </div>
+                            <Badge
+                              variant="outline"
+                              className={`text-[10px] capitalize ${
+                                evt.status === 'analyzed' || evt.status === 'processed'
+                                  ? 'text-emerald-600 border-emerald-200'
+                                  : evt.status === 'pending_analysis'
+                                  ? 'text-amber-600 border-amber-200'
+                                  : 'text-blue-600 border-blue-200'
+                              }`}
+                            >
+                              {evt.status.replace(/_/g, ' ')}
+                            </Badge>
                           </div>
-                          <Badge
-                            variant="outline"
-                            className={`text-[10px] capitalize ${
-                              approval.verdict === 'approved'
-                                ? 'text-emerald-600 border-emerald-200'
-                                : approval.verdict === 'rejected'
-                                ? 'text-red-600 border-red-200'
-                                : 'text-amber-600 border-amber-200'
-                            }`}
-                          >
-                            {approval.verdict.replace('-', ' ')}
-                          </Badge>
+                          <div className="text-xs text-muted-foreground">
+                            {evt.ref} &middot; {evt.commit_shas.length} commit{evt.commit_shas.length !== 1 ? 's' : ''}
+                          </div>
+                          {evt.commits_details.length > 0 && (
+                            <div className="space-y-1 pl-2 border-l-2 border-border ml-2">
+                              {evt.commits_details.slice(0, 5).map((c) => (
+                                <div key={c.sha} className="text-xs">
+                                  <span className="font-mono text-muted-foreground">{c.sha.slice(0, 7)}</span>
+                                  {' '}<span className="text-foreground">{c.message}</span>
+                                  <span className="text-muted-foreground ml-2">
+                                    +{c.additions} -{c.deletions}
+                                  </span>
+                                </div>
+                              ))}
+                              {evt.commits_details.length > 5 && (
+                                <p className="text-[10px] text-muted-foreground">
+                                  ... and {evt.commits_details.length - 5} more
+                                </p>
+                              )}
+                            </div>
+                          )}
+                          <div className="text-[10px] text-muted-foreground">
+                            {new Date(evt.created_at).toLocaleString()}
+                          </div>
                         </div>
-                        <p className="text-sm text-muted-foreground">{approval.reason}</p>
-                        <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                          <span>{approval.timestamp}</span>
-                          <span className="flex items-center gap-1">
-                            <TrendingUp className="w-3 h-3" />
-                            {approval.confidence}% confidence
-                          </span>
-                        </div>
-                      </div>
-                    ))}
-                    {project.agenticApprovals.length === 0 && (
-                      <p className="text-sm text-muted-foreground text-center py-4">No agentic approvals yet.</p>
-                    )}
-                  </div>
+                      ))}
+                      {pushEvents.length === 0 && (
+                        <p className="text-sm text-muted-foreground text-center py-4">No push events yet.</p>
+                      )}
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </TabsContent>
 
-            {/* Agentic Comments */}
+            {/* Agent Comments (from analyses) */}
             <TabsContent value="comments">
               <Card className="bg-card border border-border shadow-sm">
                 <CardContent className="pt-6">
-                  <div className="space-y-3">
-                    {project.agenticComments.map((c) => {
-                      const categoryColors: Record<string, string> = {
-                        'code-quality': 'text-blue-600 border-blue-200 bg-blue-50 dark:bg-blue-950/30',
-                        progress: 'text-emerald-600 border-emerald-200 bg-emerald-50 dark:bg-emerald-950/30',
-                        suggestion: 'text-violet-600 border-violet-200 bg-violet-50 dark:bg-violet-950/30',
-                        risk: 'text-red-600 border-red-200 bg-red-50 dark:bg-red-950/30',
-                      }
-                      return (
-                        <div
-                          key={c.id}
-                          className="p-4 rounded-lg border border-border bg-background space-y-2"
-                        >
-                          <div className="flex items-center gap-2">
-                            <Bot className="w-4 h-4 text-muted-foreground" />
-                            <Badge variant="outline" className={`text-[10px] capitalize ${categoryColors[c.category] ?? ''}`}>
-                              {c.category.replace('-', ' ')}
-                            </Badge>
-                            <span className="text-[10px] text-muted-foreground ml-auto">{c.timestamp}</span>
+                  {isLoadingEvents ? (
+                    <div className="flex items-center justify-center py-8 gap-2 text-sm text-muted-foreground">
+                      <Loader2 className="w-4 h-4 animate-spin" /> Loading analyses...
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {analyses.map((a) => {
+                        const statusColors: Record<string, string> = {
+                          approved: 'text-emerald-600 border-emerald-200 bg-emerald-50 dark:bg-emerald-950/30',
+                          pending: 'text-amber-600 border-amber-200 bg-amber-50 dark:bg-amber-950/30',
+                          rejected: 'text-red-600 border-red-200 bg-red-50 dark:bg-red-950/30',
+                          paid: 'text-blue-600 border-blue-200 bg-blue-50 dark:bg-blue-950/30',
+                        }
+                        return (
+                          <div
+                            key={a.push_id}
+                            className="p-4 rounded-lg border border-border bg-background space-y-2"
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <Bot className="w-4 h-4 text-muted-foreground" />
+                                <Badge variant="outline" className={`text-[10px] capitalize ${statusColors[a.analysis_status] ?? ''}`}>
+                                  {a.analysis_status}
+                                </Badge>
+                                <span className="text-xs text-muted-foreground">by @{a.author}</span>
+                              </div>
+                              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                <TrendingUp className="w-3 h-3" />
+                                {Math.round(a.confidence * 100)}% confidence
+                              </div>
+                            </div>
+                            {a.commits_summary && (
+                              <p className="text-sm font-medium text-foreground">{a.commits_summary}</p>
+                            )}
+                            <p className="text-sm text-muted-foreground">{a.reasoning}</p>
+                            <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                              <span>{a.total_commits} commit{a.total_commits !== 1 ? 's' : ''}</span>
+                              <span>Payout: {(a.total_payout_amount ?? 0).toFixed(2)} USDC</span>
+                              {a.flags.length > 0 && (
+                                <span className="text-amber-600">
+                                  Flags: {a.flags.join(', ')}
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-[10px] text-muted-foreground">
+                              {new Date(a.created_at).toLocaleString()}
+                            </div>
                           </div>
-                          <p className="text-sm text-foreground">{c.comment}</p>
-                        </div>
-                      )
-                    })}
-                    {project.agenticComments.length === 0 && (
-                      <p className="text-sm text-muted-foreground text-center py-4">No agent comments yet.</p>
-                    )}
-                  </div>
+                        )
+                      })}
+                      {analyses.length === 0 && (
+                        <p className="text-sm text-muted-foreground text-center py-4">No agent analyses yet.</p>
+                      )}
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </TabsContent>
           </Tabs>
         </div>
 
-        {/* Right Column — 1/3 */}
+        {/* Right Column */}
         <div className="space-y-6">
           {/* Streaming Status */}
           <Card className="bg-card border border-border shadow-sm">
@@ -494,10 +641,10 @@ export default function ContractorProjectDetailPage({ params }: { params: Promis
                   <div className="text-center">
                     <Avatar className="w-10 h-10 mx-auto mb-1">
                       <AvatarFallback className="text-xs bg-emerald-100 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400">
-                        {project.freelancerInitials}
+                        {initials}
                       </AvatarFallback>
                     </Avatar>
-                    <p className="text-[10px] text-muted-foreground">@{project.freelancerAlias}</p>
+                    <p className="text-[10px] text-muted-foreground">@{project.freelance_alias}</p>
                   </div>
                 </div>
                 <div className="text-center">
@@ -506,13 +653,13 @@ export default function ContractorProjectDetailPage({ params }: { params: Promis
                     <StreamingCounter
                       baseValue={liveStreamed}
                       ratePerSecond={liveRate}
-                      suffix={` ${project.currency}`}
+                      suffix=" USDC"
                       decimals={6}
                       className="text-xl font-bold text-foreground"
                     />
                   ) : (
                     <span className="text-xl font-bold text-foreground font-mono">
-                      {liveStreamed.toFixed(6)} {project.currency}
+                      {liveStreamed.toFixed(6)} USDC
                     </span>
                   )}
                 </div>
@@ -521,9 +668,9 @@ export default function ContractorProjectDetailPage({ params }: { params: Promis
               <div>
                 <p className="text-xs text-muted-foreground mb-2">Streamed Over Time</p>
                 <StreamedAmountChart
-                  startTimestamp={project.startTimestamp}
+                  startTimestamp={startTimestamp}
                   ratePerSecond={liveRate}
-                  currency={project.currency}
+                  currency="USDC"
                   paused={liveStatus !== 'active'}
                 />
               </div>
@@ -531,7 +678,7 @@ export default function ContractorProjectDetailPage({ params }: { params: Promis
               <div className="space-y-2 text-sm">
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Rate</span>
-                  <span className="font-medium font-mono">{liveRate.toFixed(10)} {project.currency}/sec</span>
+                  <span className="font-medium font-mono">{liveRate.toFixed(10)} USDC/sec</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Budget Used</span>
@@ -539,32 +686,8 @@ export default function ContractorProjectDetailPage({ params }: { params: Promis
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Remaining</span>
-                  <span className="font-medium font-mono">{(project.budget - liveStreamed).toFixed(4)} {project.currency}</span>
+                  <span className="font-medium font-mono">{(project.total_budget - liveStreamed).toFixed(4)} USDC</span>
                 </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Activity Log */}
-          <Card className="bg-card border border-border shadow-sm">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base font-semibold">Activity Log</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                {project.activityLog.slice().reverse().map((log) => (
-                  <div key={log.id} className="flex gap-3 text-sm">
-                    <div className={`w-2 h-2 rounded-full mt-1.5 flex-shrink-0 ${
-                      log.type === 'success' ? 'bg-emerald-500' :
-                      log.type === 'warning' ? 'bg-amber-500' :
-                      log.type === 'error' ? 'bg-red-500' : 'bg-blue-500'
-                    }`} />
-                    <div>
-                      <p className="text-foreground text-xs">{log.event}</p>
-                      <p className="text-[10px] text-muted-foreground">{log.timestamp}</p>
-                    </div>
-                  </div>
-                ))}
               </div>
             </CardContent>
           </Card>

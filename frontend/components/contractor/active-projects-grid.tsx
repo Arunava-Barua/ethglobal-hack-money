@@ -11,40 +11,91 @@ import { StatusBadge } from '@/components/status-badge'
 import { StreamingCounter } from '@/components/streaming-counter'
 import { formatEther } from 'viem'
 import {
-  getStoredProjects,
   queryStream,
   sendStreamAction,
-  type StoredProject,
   type StreamState,
 } from '@/lib/streaming'
+import { listProjects, type BackendProject } from '@/lib/api'
 import { useWallet } from '@/components/wallet-provider'
 
 const POLL_INTERVAL = 15_000 // 15 seconds
+
+/** Normalised shape used internally by this component */
+interface NormalisedProject {
+  id: string // project_id from backend
+  name: string
+  freelancerAlias: string
+  freelancerInitials: string
+  treasuryAddress: string
+  streamId: number
+  status: 'active' | 'paused' | 'completed'
+  totalBudgetInUSDC: number
+  evaluationMode: string
+  milestoneSpec: Record<string, unknown>
+}
+
+function normalise(bp: BackendProject): NormalisedProject | null {
+  // Skip projects without streaming data
+  if (!bp.treasury_address || bp.stream_id == null) return null
+  const initials = bp.freelance_alias
+    .split(/[_\s-]/)
+    .map((w) => w[0]?.toUpperCase() ?? '')
+    .join('')
+    .slice(0, 2)
+  return {
+    id: bp.project_id,
+    name:
+      (bp.milestone_specification as { projectTitle?: string })?.projectTitle ??
+      `Contract with ${bp.freelance_alias}`,
+    freelancerAlias: bp.freelance_alias,
+    freelancerInitials: initials,
+    treasuryAddress: bp.treasury_address,
+    streamId: parseInt(bp.stream_id, 10),
+    status: (bp.status as 'active' | 'paused' | 'completed') ?? 'active',
+    totalBudgetInUSDC: bp.total_budget,
+    evaluationMode: bp.evaluation_mode,
+    milestoneSpec: bp.milestone_specification,
+  }
+}
 
 interface ActiveProjectsGridProps {
   refreshKey?: number
 }
 
 export function ActiveProjectsGrid({ refreshKey }: ActiveProjectsGridProps) {
-  const { walletId, userToken, executeChallenge } = useWallet()
-  const [projects, setProjects] = useState<StoredProject[]>([])
+  const { address, walletId, userToken, executeChallenge } = useWallet()
+  const [projects, setProjects] = useState<NormalisedProject[]>([])
+  const [isLoading, setIsLoading] = useState(true)
   const [streamStates, setStreamStates] = useState<Record<string, StreamState>>({})
-  // Tracks which project has an action in progress (projectId -> action name)
   const [actionInProgress, setActionInProgress] = useState<Record<string, string>>({})
 
-  // Load projects from localStorage
-  useEffect(() => {
-    setProjects(getStoredProjects())
-  }, [refreshKey])
+  // Fetch projects from backend API
+  const fetchProjects = useCallback(async () => {
+    try {
+      const data = await listProjects({
+        user_type: 'contractor',
+        wallet_address: address ?? undefined,
+      })
+      const normalised = data.map(normalise).filter(Boolean) as NormalisedProject[]
+      setProjects(normalised)
+    } catch (err) {
+      console.error('Failed to fetch projects:', err)
+    } finally {
+      setIsLoading(false)
+    }
+  }, [address])
 
-  // Poll on-chain stream state for all active projects
+  useEffect(() => {
+    fetchProjects()
+  }, [fetchProjects, refreshKey])
+
+  // Poll on-chain stream state for all projects
   const pollStreams = useCallback(async () => {
-    const stored = getStoredProjects()
-    if (stored.length === 0) return
+    if (projects.length === 0) return
 
     const newStates: Record<string, StreamState> = {}
     await Promise.all(
-      stored.map(async (p) => {
+      projects.map(async (p) => {
         const state = await queryStream(p.treasuryAddress, p.streamId)
         if (state) {
           newStates[p.id] = state
@@ -62,24 +113,19 @@ export function ActiveProjectsGrid({ refreshKey }: ActiveProjectsGridProps) {
         return p
       }),
     )
-  }, [])
+  }, [projects])
 
   useEffect(() => {
-    pollStreams()
+    if (projects.length > 0) {
+      pollStreams()
+    }
     const interval = setInterval(pollStreams, POLL_INTERVAL)
     return () => clearInterval(interval)
-  }, [pollStreams, refreshKey])
+  }, [pollStreams])
 
-  /**
-   * Compute the current streamed value for a project.
-   * Uses on-chain state when available: accrued + ratePerSecond * elapsed since lastTimestamp.
-   * Returns a { baseValue, ratePerSecond } pair for StreamingCounter (in human-readable USDC).
-   */
-  function getStreamingValues(project: StoredProject) {
+  function getStreamingValues(project: NormalisedProject) {
     const state = streamStates[project.id]
-
     if (state) {
-      // On-chain values are in wei (18 decimals)
       const accruedWei = BigInt(state.accrued)
       const rateWei = BigInt(state.ratePerSecond)
       const elapsed = state.paused
@@ -90,25 +136,21 @@ export function ActiveProjectsGrid({ refreshKey }: ActiveProjectsGridProps) {
       const ratePerSecondHuman = parseFloat(formatEther(rateWei))
       return { baseValue, ratePerSecond: state.paused ? 0 : ratePerSecondHuman }
     }
-
-    // Fallback before first on-chain poll (shows 0 briefly, then resyncs)
-    const rateWei = BigInt(project.ratePerSecond)
-    const ratePerSecondHuman = parseFloat(formatEther(rateWei))
-    return { baseValue: 0, ratePerSecond: ratePerSecondHuman }
+    return { baseValue: 0, ratePerSecond: 0 }
   }
 
-  function getTaskCounts(project: StoredProject) {
-    const spec = project.taskSpecification as {
+  function getTaskCounts(project: NormalisedProject) {
+    const spec = project.milestoneSpec as {
       milestones?: { title: string; tasks: string[] }[]
     } | null
     const milestones = spec?.milestones ?? []
-    const totalTasks = milestones.reduce((sum, m) => sum + m.tasks.length, 0)
+    const totalTasks = milestones.reduce((sum, m) => sum + (m.tasks?.length ?? 0), 0)
     return { tasksCompleted: 0, totalTasks }
   }
 
   async function handleStreamAction(
     e: React.MouseEvent,
-    project: StoredProject,
+    project: NormalisedProject,
     action: 'pauseStream' | 'resumeStream' | 'stopStream',
   ) {
     e.preventDefault()
@@ -126,7 +168,6 @@ export function ActiveProjectsGrid({ refreshKey }: ActiveProjectsGridProps) {
       )
       await executeChallenge(challengeId)
 
-      // Poll for updated state after a short delay
       let retries = 0
       const maxRetries = 10
       while (retries < maxRetries) {
@@ -134,7 +175,6 @@ export function ActiveProjectsGrid({ refreshKey }: ActiveProjectsGridProps) {
         const state = await queryStream(project.treasuryAddress, project.streamId)
         if (state) {
           setStreamStates((prev) => ({ ...prev, [project.id]: state }))
-          // Check if the on-chain state reflects the expected change
           const expectedPaused = action !== 'resumeStream'
           if (state.paused === expectedPaused) {
             setProjects((prev) =>
@@ -158,6 +198,22 @@ export function ActiveProjectsGrid({ refreshKey }: ActiveProjectsGridProps) {
         return next
       })
     }
+  }
+
+  if (isLoading) {
+    return (
+      <div>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold text-foreground">Active Projects</h2>
+        </div>
+        <Card className="bg-card border border-border shadow-sm">
+          <CardContent className="flex items-center justify-center py-12 gap-2 text-muted-foreground text-sm">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            Loading projects...
+          </CardContent>
+        </Card>
+      </div>
+    )
   }
 
   if (projects.length === 0) {
@@ -246,7 +302,7 @@ export function ActiveProjectsGrid({ refreshKey }: ActiveProjectsGridProps) {
                     )}
                   </div>
 
-                  {/* Rate display — per-second from contract */}
+                  {/* Rate display */}
                   <div className="flex items-center justify-between">
                     <span className="text-xs text-muted-foreground">Rate</span>
                     <span className="text-xs font-mono text-muted-foreground">
